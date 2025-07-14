@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>About Us</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    /* Full-screen overlay */
+    #loader {
+      position: fixed; top: 0; left: 0;
+      width: 100vw; height: 100vh;
+      background: radial-gradient(circle at center, #000 0%, #000 90%);
+      display: flex; align-items: center; justify-content: center;
+      z-index: 1000;
+      opacity: 1; filter: blur(0);
+      transition: opacity 0.8s ease, filter 0.8s ease;
+    }
+    /* Container for our two-layer spinner */
+    .loader-container {
+      position: relative;
+      width: 280px; height: 280px;
+    }
+    /* Inner disc (your stylized image) */
+    .disc-spin {
+      position: absolute;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      background: url('{{ url_for("static", filename="spin_disc.png") }}') no-repeat center/cover;
+      border-radius: 50%;
+      animation: spin 2s linear infinite;
+    }
+    /* Outer glowing ring */
+    .outer-ring {
+      position: absolute;
+      top: -8px; left: -8px;
+      width: calc(100% + 16px); height: calc(100% + 16px);
+      border: 6px solid rgba(255,201,4,0.6);
+      border-radius: 50%;
+      animation:
+        spin-reverse 4s linear infinite,
+        glow 1.5s ease-in-out infinite alternate;
+    }
+    /* Keyframes */
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+    @keyframes spin-reverse {
+      to { transform: rotate(-360deg); }
+    }
+    @keyframes glow {
+      from { box-shadow: 0 0 8px rgba(255,201,4,0.4); }
+      to   { box-shadow: 0 0 20px rgba(255,201,4,0.8); }
+    }
+    /* Hide content until loader finishes */
+    #about-content { visibility: hidden; }
+  </style>
+</head>
+<body class="bg-gray-100 font-sans">
+
+  <!-- Fancy Loader -->
+  <div id="loader">
+    <div class="loader-container">
+      <div class="outer-ring"></div>
+      <div class="disc-spin"></div>
+    </div>
+  </div>
+
+  <!-- Main content (hidden initially) -->
+  <div id="about-content" class="p-6">
+    <div class="max-w-2xl mx-auto bg-white p-6 rounded shadow text-center">
+      <h1 class="text-2xl font-bold mb-4">ℹ️ About Us</h1>
+      <p class="mb-4">
+        This Research Storage Finder was developed by the DISC team at Utrecht University
+        to help researchers and data stewards find the right storage solution for their needs.
+      </p>
+      <h2 class="text-xl font-semibold mb-2">Our Team</h2>
+      <ul class="list-disc list-inside mb-4 text-left">
+        <li>Dan Rudmann</li>
+        <li>Rene Adelerhof</li>
+        <li>ao</li>
+      </ul>
+      <h2 class="text-xl font-semibold mb-2">Contact</h2>
+      <p>Email: <a href="mailto:rdm-support@uu.nl" class="text-blue-600 hover:underline">rdm-support@uu.nl</a></p>
+      <p>Phone: <span class="italic">+31 (0)30 253 1234</span></p>
+
+      <img src="{{ url_for('static', filename='disc.png') }}"
+           alt="DISC picture"
+           class="mx-auto mt-6 w-128 object-contain">
+
+      <a href="/" class="mt-6 inline-block bg-yellow-400 hover:bg-yellow-300 text-black font-semibold py-2 px-4 rounded">
+        ← Back to Home
+      </a>
+    </div>
+  </div>
+
+  <script>
+    window.addEventListener('load', () => {
+      // Spin for 3s, then blur-fade
+      setTimeout(() => {
+        const loader = document.getElementById('loader');
+        loader.style.opacity = '0';
+        loader.style.filter = 'blur(8px)';
+        loader.addEventListener('transitionend', () => {
+          loader.remove();
+          document.getElementById('about-content').style.visibility = 'visible';
+        });
+      }, 1500);
+    });
+  </script>
+
+</body>
+</html>

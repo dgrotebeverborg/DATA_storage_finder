@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Compare Solutions</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-100 font-sans p-6">
+
+  <!-- Header -->
+  <div class="flex justify-between items-center mb-6">
+    <h1 class="text-2xl font-bold">🧪 Compare Storage Solutions</h1>
+    <a href="/" class="bg-yellow-400 hover:bg-yellow-300 text-black font-semibold py-2 px-4 rounded">
+      ← Back to overview
+    </a>
+  </div>
+
+  {% set categories = {
+    "📄 General Information": [
+      "Purpose", "Extra Information Link", "Storage type", "Storage location"
+    ],
+    "💰 Costs & Access": [
+      "Costs and eligibility", "How to access", "Available licenses", "Internal contact point for RDM"
+    ],
+    "🔐 Security & Sensitivity": [
+      "Data sensitivity classification", "File encryption", "Remote access", "Mobile app support", "Sync to Client"
+    ],
+    "📦 Storage & Capacity": [
+      "Storage capacity", "Maximum File size", "File formats", "Versioning", "Complete data deletion", "Back-ups & Recovery"
+    ],
+    "🔄 Sharing & Collaboration": [
+      "Sharing and Collaboration"
+    ],
+    "🧾 Compliance & Archiving": [
+      "Longterm storage", "Metadata", "Data citation", "PID policy", "Aggregated to search service", "Search engines harvesting?"
+    ]
+  } %}
+
+  <!-- Scrollable grid on small screens -->
+  <div class="overflow-x-auto">
+    <div class="min-w-[800px] space-y-6">
+
+      {% for category, fields in categories.items() %}
+        <!-- Section Header -->
+        <div class="bg-yellow-400 text-black font-bold px-4 py-2 rounded">
+          {{ category }}
+        </div>
+
+        <!-- Table Layout -->
+        <div class="grid grid-cols-1 sm:grid-cols-{{ solutions|length + 1 }} gap-4 bg-white p-4 rounded shadow text-sm">
+
+          <!-- Column: Field names -->
+          <div class="font-semibold text-gray-800">
+            {% for field in fields %}
+              <div class="py-2 border-b border-gray-200">{{ field }}</div>
+            {% endfor %}
+          </div>
+
+          <!-- Columns: Each solution -->
+          {% for sol in solutions %}
+            <div>
+              <!-- Clickable title -->
+              <div class="font-bold text-yellow-600 mb-2">
+                <a href="/solution/{{ sol.name | urlencode }}" class="hover:underline">{{ sol.name }}</a>
+              </div>
+              {% for field in fields %}
+                {% set val = sol.get(field) %}
+                <div class="py-2 border-b border-gray-100">
+                  {{ val if val and val != "nan" else "—" }}
+                </div>
+              {% endfor %}
+            </div>
+          {% endfor %}
+
+        </div>
+      {% endfor %}
+
+    </div>
+  </div>
+
+</body>
+</html>

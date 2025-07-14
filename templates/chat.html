@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Chat Assistant</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    .chat-bubble {
+      max-width: 80%;
+      padding: 0.75rem 1rem;
+      border-radius: 1rem;
+      margin-bottom: 0.5rem;
+    }
+    .bot {
+      background-color: #fef08a;
+      align-self: flex-start;
+    }
+    .user {
+      background-color: #e5e7eb;
+      align-self: flex-end;
+    }
+  </style>
+</head>
+<body class="bg-gray-100 font-sans p-6">
+
+  <div class="max-w-2xl mx-auto">
+    <h1 class="text-2xl font-bold mb-4">💬 Chat with the Storage Assistant</h1>
+
+    <div class="bg-white p-4 rounded shadow h-[60vh] overflow-y-auto flex flex-col mb-4" id="chat-box">
+      <div class="chat-bubble bot">Hi! Ask me anything about UU data storage or privacy.</div>
+    </div>
+
+    <form id="chat-form" class="flex gap-2">
+      <input type="text" id="user-input" placeholder="Type your question..."
+             class="flex-1 px-4 py-2 rounded border border-gray-300 shadow-sm focus:outline-none">
+      <button type="submit" class="bg-yellow-400 hover:bg-yellow-300 text-black font-semibold px-4 py-2 rounded">
+        Send
+      </button>
+    </form>
+  </div>
+
+  <script>
+    const chatBox = document.getElementById('chat-box');
+    const form = document.getElementById('chat-form');
+    const input = document.getElementById('user-input');
+
+    form.onsubmit = async function(e) {
+      e.preventDefault();
+      const msg = input.value.trim();
+      if (!msg) return;
+
+      // Add user message
+      const userBubble = document.createElement('div');
+      userBubble.className = "chat-bubble user";
+      userBubble.innerText = msg;
+      chatBox.appendChild(userBubble);
+
+      // Scroll
+      chatBox.scrollTop = chatBox.scrollHeight;
+      input.value = "";
+
+      // Bot typing...
+      const botBubble = document.createElement('div');
+      botBubble.className = "chat-bubble bot";
+      botBubble.innerText = "Thinking...";
+      chatBox.appendChild(botBubble);
+      chatBox.scrollTop = chatBox.scrollHeight;
+
+      // Get response from /chat/ask
+      const res = await fetch("/chat/ask", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: msg })
+      });
+      const data = await res.json();
+      botBubble.innerText = data.response;
+      chatBox.scrollTop = chatBox.scrollHeight;
+    };
+  </script>
+
+</body>
+</html>

@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>{{ category.capitalize() }} Solutions</title>
+  <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+</head>
+<body class="bg-white font-sans">
+  <div class="max-w-6xl mx-auto py-8">
+    <h1 class="text-3xl font-bold mb-6 text-gray-800">{{ category.capitalize() }} Storage Solutions</h1>
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+      {% for sol in solutions %}
+      <div class="border p-4 rounded-lg shadow hover:shadow-md">
+        <h2 class="text-xl font-semibold mb-2">{{ sol.name }}</h2>
+        <p class="text-gray-600 text-sm mb-3">{{ sol['Purpose'][:120] }}...</p>
+        <a href="/solution/{{ sol.name }}" class="text-blue-600 hover:underline text-sm">View details →</a>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+</body>
+</html>

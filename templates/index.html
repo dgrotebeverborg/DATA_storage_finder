@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>UU Research Storage Guide</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    let selected = [];
+
+    function toggleSelect(name) {
+      const index = selected.indexOf(name);
+      if (index === -1) {
+        selected.push(name);
+      } else {
+        selected.splice(index, 1);
+      }
+      updateCompareButton();
+    }
+
+      function updateCompareButton() {
+      const btn = document.getElementById("compare-btn");
+      if (selected.length >= 2) {
+        btn.style.opacity = "1";
+        btn.style.pointerEvents = "auto";
+        btn.href = "/compare?" + selected.map(n => "names=" + encodeURIComponent(n)).join("&");
+      } else {
+        btn.style.opacity = "0.5";
+        btn.style.pointerEvents = "none";
+        btn.removeAttribute("href");
+      }
+    }
+
+  </script>
+</head>
+<body class="bg-gray-100 font-sans p-6">
+
+  <!-- Top Bar -->
+  <div class="flex flex-col md:flex-row justify-between items-center mb-6">
+    <h1 class="text-2xl font-bold mb-4 md:mb-0">💾 Research Storage Solutions (Made by DISC)</h1>
+    <div class="flex gap-2">
+      <a href="/wizard"
+         class="bg-yellow-400 hover:bg-yellow-300 text-black font-semibold py-2 px-4 rounded">
+        🧭 Wizard
+      </a>
+       <a id="compare-btn"
+       class="bg-yellow-400 text-black font-semibold py-2 px-4 rounded transition duration-150"
+       style="opacity: 0.5; pointer-events: none;">
+      🧪 Compare
+    </a>
+        <a href="/chat" class="bg-yellow-400 hover:bg-yellow-300 text-black font-semibold py-2 px-4 rounded">
+  💬 Chat Assistant
+</a>
+        <!-- NEW About Us button -->
+<a href="/about"
+   class="bg-yellow-400 hover:bg-yellow-300 text-black font-semibold py-2 px-4 rounded">
+  ℹ️ About Us
+</a>
+
+
+    </div>
+  </div>
+
+  <!-- Solution Cards -->
+  <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-6">
+    {% for s in solutions %}
+      <div class="bg-white rounded-lg shadow p-4 flex flex-col justify-between">
+        <div>
+          <h3 class="text-lg font-bold mb-2">{{ s.name }}</h3>
+          <p class="text-sm text-gray-600 mb-4">
+            {{ (s["Purpose"] | default("No description available") | string)[:150] }}...
+          </p>
+          <label class="text-sm">
+            <input type="checkbox" onchange="toggleSelect('{{ s.name }}')"
+                   class="mr-2 align-middle">
+            Select for comparison
+          </label>
+        </div>
+        <a class="mt-4 bg-yellow-400 hover:bg-yellow-300 text-black text-sm font-semibold py-2 px-4 rounded w-fit"
+           href="/solution/{{ s.name | urlencode }}">
+          🔍 View Details
+        </a>
+      </div>
+    {% endfor %}
+  </div>
+
+</body>
+</html>

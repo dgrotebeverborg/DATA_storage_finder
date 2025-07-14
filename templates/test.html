@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Tooltip test</title>
+  <style>
+    .tooltip {
+      position: relative;
+      display: inline-block;
+      cursor: default;
+    }
+
+    .tooltip .tooltiptext {
+      visibility: hidden;
+      width: 240px;
+      background-color: #333;
+      color: #fff;
+      text-align: left;
+      border-radius: 6px;
+      padding: 0.6rem;
+      position: absolute;
+      z-index: 1;
+      bottom: 125%;
+      left: 0;
+      opacity: 0;
+      transition: opacity 0.3s;
+      font-size: 0.8rem;
+      line-height: 1.3;
+    }
+
+    .tooltip:hover .tooltiptext {
+      visibility: visible;
+      opacity: 1;
+    }
+  </style>
+</head>
+<body>
+
+  <h2>Tooltip test</h2>
+  <div class="tooltip">⚠️ Not a match
+    <span class="tooltiptext">
+      Not suitable because:<br>
+      - Data not sensitive<br>
+      - No external collaboration
+    </span>
+  </div>
+
+</body>
+</html>
