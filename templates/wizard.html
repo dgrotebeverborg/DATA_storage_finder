@@ -2,177 +2,110 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Storage Wizard</title>
+  <title>🧭 Storage Solution Wizard</title>
+  <script src="https://cdn.tailwindcss.com"></script>
   <style>
-    body {
-      font-family: sans-serif;
-      padding: 2rem;
-      background: #f7f7f7;
-    }
-
-    .top-bar {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      margin-bottom: 2rem;
-    }
-
-    h1 {
-      margin: 0;
-    }
-
-    .btn-compare {
-      padding: 0.5rem 1rem;
-      background: #ffc904;
-      color: black;
-      border-radius: 4px;
-      font-weight: bold;
-      text-decoration: none;
-      opacity: 0.5;
-      pointer-events: none;
-    }
-
-    .btn-compare.active {
-      opacity: 1;
-      pointer-events: auto;
-    }
-
-    .layout {
-      display: flex;
-      gap: 2rem;
-      flex-wrap: wrap;
-    }
-
-    .form-area {
-      flex: 1;
-      min-width: 300px;
-    }
-
-    .results-area {
-      flex: 1.2;
-      background: #fff;
-      padding: 1rem;
-      border-radius: 8px;
-      box-shadow: 2px 2px 8px rgba(0, 0, 0, 0.05);
-    }
-
-    .step {
-      margin-bottom: 2rem;
-    }
-
-    .step label {
-      display: block;
-      margin: 0.5rem 0;
-    }
-
+    body { background: #f9fafb; font-family: 'Inter', sans-serif; }
+    .card { background: #fff; border-radius: 8px; box-shadow: 0 2px 6px rgba(0,0,0,0.05); padding: 1.2rem; }
     .btn {
-      padding: 0.5rem 1rem;
-      background: #ffc904;
-      color: black;
-      border-radius: 4px;
-      font-weight: bold;
-      border: none;
-      cursor: pointer;
+      background: #facc15; color: black; font-weight: 600;
+      padding: 0.5rem 1rem; border-radius: 6px;
     }
-
-    .grid {
-      display: grid;
-      grid-template-columns: 1fr;
-      gap: 1rem;
-      margin-top: 1rem;
+    .btn:hover { background: #fde047; }
+    .compare-btn {
+      background: #facc15; color: #111; font-weight: 700;
+      padding: 0.5rem 1rem; border-radius: 6px;
+      opacity: 0.4; pointer-events: none;
     }
-
-    .card {
-      background: #fdfdfd;
-      border: 1px solid #ddd;
-      padding: 1rem;
-      border-radius: 6px;
-      box-shadow: 1px 1px 6px rgba(0, 0, 0, 0.03);
-      display: flex;
-      flex-direction: column;
-    }
-
-    .card.disabled {
-      opacity: 0.6;
-      filter: grayscale(60%);
-    }
-
-    .card h4 {
-      margin-top: 0;
-    }
-
-    .btn-small {
-      margin-top: auto;
-      padding: 0.3rem 0.6rem;
-      font-size: 0.9rem;
-      background: #ffc904;
-      color: black;
-      border-radius: 4px;
-      text-decoration: none;
-      font-weight: bold;
-      width: fit-content;
-    }
-
-    .reasons {
-      background: #f0f0f0;
-      margin-top: 0.5rem;
-      padding: 0.5rem;
-      border-left: 3px solid #d33;
-      font-size: 0.85rem;
-    }
-
-    .reasons ul {
-      padding-left: 1.2rem;
-      margin: 0;
-    }
+    .compare-btn.active { opacity: 1; pointer-events: auto; }
+    .reasons { background: #f3f4f6; border-left: 3px solid #dc2626; padding: 0.5rem 0.75rem; font-size: 0.9rem; margin-top: 0.5rem; border-radius: 4px; }
+    .question h3 { font-weight: 700; color: #111827; margin-bottom: 0.25rem; }
+    .question p { font-size: 0.9rem; color: #4b5563; margin-bottom: 0.5rem; }
+    .label-row label { display: block; margin: 0.25rem 0; cursor: pointer; }
   </style>
 </head>
-<body>
 
-  <div class="top-bar">
-    <h1>🧭 Storage Solution Wizard</h1>
-    <a id="compare-btn" class="btn-compare" href="#">🧪 Compare Selected</a>
+<body class="p-6">
+
+  <!-- Header -->
+  <div class="flex justify-between items-center mb-6">
+    <h1 class="text-3xl font-bold">🧭 Storage Solution Wizard</h1>
+    <a id="compare-btn" href="#" class="compare-btn">🧪 Compare Selected</a>
   </div>
 
-  <div class="layout">
-    <div class="form-area">
-      <form method="get" action="/wizard/results" id="wizard-form">
-        <div class="step">
-          <h3>1. What phase are you in?</h3>
-          <label><input type="radio" name="phase" value="active" required> During research (active)</label>
-          <label><input type="radio" name="phase" value="preservation"> After research (archiving/publishing)</label>
-        </div>
-        <div class="step">
-          <h3>2. Does the data contain sensitive/personal info?</h3>
-          <label><input type="radio" name="sensitive" value="yes" required> Yes</label>
-          <label><input type="radio" name="sensitive" value="no"> No</label>
-        </div>
-        <div class="step">
-          <h3>3. Do you want to collaborate?</h3>
-          <label><input type="radio" name="collab" value="internal" required> Yes, inside UU</label>
-          <label><input type="radio" name="collab" value="external"> Yes, with external partners</label>
-          <label><input type="radio" name="collab" value="no"> No collaboration needed</label>
-        </div>
-        <div class="step">
-          <h3>4. How much data are you storing?</h3>
-          <label><input type="radio" name="volume" value="small" required> Small (&lt; 50 GB)</label>
-          <label><input type="radio" name="volume" value="medium"> Medium (50 GB – 1 TB)</label>
-          <label><input type="radio" name="volume" value="large"> Large (&gt; 1 TB)</label>
-        </div>
-        <div class="step">
-          <button class="btn" type="submit">🔍 Show Full Results</button>
-        </div>
-      </form>
+  <div class="grid md:grid-cols-2 gap-6">
+
+    <!-- Left column: questions -->
+    <div class="space-y-6">
+      <div class="card">
+        <form id="wizard-form" method="post" onsubmit="return false;">
+
+          <!-- 1️⃣ Phase -->
+          <div class="question">
+            <h3>1. Research phase</h3>
+            <p>In which stage of your research do you need storage?
+            <br><em>In welke fase van je onderzoek bevind je je?</em></p>
+            <div class="label-row">
+              <label><input type="radio" name="phase" value="active" required> During research (collect, create, collaborate)</label>
+              <label><input type="radio" name="phase" value="preservation"> After research (archiving, publishing, sharing)</label>
+              <label><input type="radio" name="phase" value="both"> Both phases apply</label>
+            </div>
+          </div>
+
+          <!-- 2️⃣ Sensitive -->
+          <div class="question">
+            <h3>2. Sensitive / personal data</h3>
+            <p>Does your dataset contain personal or sensitive information?
+            <br><em>Bevat je data persoonsgegevens of vertrouwelijke informatie?</em></p>
+            <div class="label-row">
+              <label><input type="radio" name="sensitive" value="yes" required> Yes — contains sensitive data</label>
+              <label><input type="radio" name="sensitive" value="no"> No — no sensitive data</label>
+            </div>
+          </div>
+
+          <!-- 3️⃣ Collaboration -->
+          <div class="question">
+            <h3>3. Collaboration needs</h3>
+            <p>Do you need to collaborate on this data?
+            <br><em>Wil je samenwerken aan deze data?</em></p>
+            <div class="label-row">
+              <label><input type="radio" name="collab" value="no" required> No collaboration needed</label>
+              <label><input type="radio" name="collab" value="internal"> Yes — within Utrecht University</label>
+              <label><input type="radio" name="collab" value="external"> Yes — with external partners</label>
+            </div>
+          </div>
+
+          <!-- 4️⃣ Volume -->
+          <div class="question">
+            <h3>4. Data volume</h3>
+            <p>How much data do you expect to store?
+            <br><em>Hoeveel data verwacht je op te slaan?</em></p>
+            <div class="label-row">
+              <label><input type="radio" name="volume" value="small" required> Small (< 50 GB)</label>
+              <label><input type="radio" name="volume" value="medium"> Medium (50 GB – 1 TB)</label>
+              <label><input type="radio" name="volume" value="large"> Large (> 1 TB)</label>
+            </div>
+          </div>
+
+        </form>
+      </div>
     </div>
 
-    <div class="results-area">
-      <h2>🔎 Matching Solutions</h2>
-      <div id="matches" class="grid">
-        <p>Start selecting options to see matching solutions here...</p>
+    <!-- Right column: results -->
+    <div class="space-y-6">
+
+      <div class="card">
+        <h2 class="text-xl font-bold mb-2">🔎 Matching Solutions</h2>
+        <div id="matches" class="space-y-3 text-sm text-gray-800">
+          <p>Start by selecting your criteria on the left.</p>
+        </div>
       </div>
 
-      <h2 style="margin-top:2rem;">⚠️ Not Matching </h2>
-      <div id="non-matches" class="grid"></div>
+      <div class="card">
+        <h2 class="text-xl font-bold mb-2 text-gray-700">⚠️ Not Matching</h2>
+        <div id="non-matches" class="space-y-3 text-sm text-gray-600"></div>
+      </div>
+
     </div>
   </div>
 
@@ -198,10 +131,10 @@
     }
 
     function updateMatches() {
-      const form = document.querySelector("form");
+      const form = document.getElementById("wizard-form");
       const data = new FormData(form);
       const payload = {};
-      for (let [k,v] of data.entries()) payload[k] = v;
+      for (let [k, v] of data.entries()) payload[k] = v;
 
       fetch("/api/filter", {
         method: "POST",
@@ -217,7 +150,7 @@
         selected = [];
 
         if (!data.matches.length && !data.non_matches.length) {
-          container.innerHTML = "<p>No matches yet. Try selecting more options.</p>";
+          container.innerHTML = "<p>No matches found yet. Try selecting more options.</p>";
           updateCompareBtn();
           return;
         }
@@ -225,25 +158,21 @@
         data.matches.forEach(s => {
           selected.push(s.name);
           const div = document.createElement("div");
-          div.className = "card";
+          div.className = "border rounded p-3 bg-white shadow-sm";
           div.innerHTML = `
-            <h4>${s.name}</h4>
-            <p>${(s.Purpose || "No description").slice(0,150)}...</p>
-            <label>
-              <input type="checkbox" class="compare-toggle" checked onchange="toggleSelect('${s.name}')">
-              Select for comparison
-            </label>
-            <a class="btn-small" href="/solution/${encodeURIComponent(s.name)}">🔍 View Details</a>
+            <h4 class="font-semibold text-yellow-600">${s.name}</h4>
+            <p>${(s["storage_details"] || "No description available").slice(0, 150)}...</p>
+            <label class="text-sm"><input type="checkbox" checked onchange="toggleSelect('${s.name}')"> Compare</label>
+            <a href="/solution/${encodeURIComponent(s.name)}" class="text-blue-700 hover:underline block mt-1 text-sm">🔍 View details</a>
           `;
           container.appendChild(div);
         });
 
         data.non_matches.forEach(s => {
           const div = document.createElement("div");
-          div.className = "card disabled";
+          div.className = "border rounded p-3 bg-gray-50";
           div.innerHTML = `
-            <h4>${s.name}</h4>
-            <p>${(s.Purpose || "No description").slice(0,150)}...</p>
+            <h4 class="font-semibold text-gray-700">${s.name}</h4>
             <div class="reasons">
               <strong>Not suitable because:</strong>
               <ul>${(s.reasons || []).map(r => `<li>${r}</li>`).join("")}</ul>
@@ -260,5 +189,6 @@
       el.addEventListener("change", updateMatches);
     });
   </script>
+
 </body>
 </html>

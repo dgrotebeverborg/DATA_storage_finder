@@ -67,7 +67,7 @@
         <div>
           <h3 class="text-lg font-bold mb-2">{{ s.name }}</h3>
           <p class="text-sm text-gray-600 mb-4">
-            {{ (s["Purpose"] | default("No description available") | string)[:150] }}...
+            {{ (s["storage_details"] | default("No description available") | string)[:150] }}...
           </p>
           <label class="text-sm">
             <input type="checkbox" onchange="toggleSelect('{{ s.name }}')"

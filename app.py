@@ -1,15 +1,10 @@
-from flask import Flask, render_template, request, redirect, url_for, jsonify
 import json
-import os
-from flask import Response
 import math
 from logic.matching import match_with_reason, sanitize_for_json
 from chatbot.storage_rag import ask_storage_question
 
 from flask import Flask, request, jsonify, render_template, session
-from langchain.vectorstores import Chroma
-from langchain.embeddings import HuggingFaceEmbeddings
-from langchain.llms import LlamaCpp
+
 from langchain.chains import ConversationalRetrievalChain
 import os
 
@@ -22,13 +17,13 @@ LLAMA_MODEL_PATH = "models/llama3/llama-pro-8b-instruct.Q4_K_M.gguf"  # ✅ Your
 
 
 # Load data on startup
-DATA_PATH = os.path.join("data", "storage_data.json")
+DATA_PATH = os.path.join("data", "storage_data_2.json")
 with open(DATA_PATH) as f:
     storage_data = json.load(f)
 
 # Combine active and preservation into one list
-all_solutions = storage_data["active_storage"] + storage_data["preservation_storage"]
-
+# all_solutions = storage_data["active_storage"] + storage_data["preservation_storage"]
+all_solutions = storage_data["storage_data_2"]
 # Safe lowercase helper
 def safe_lower(val):
     return str(val).lower() if val and not isinstance(val, float) else ""
@@ -68,14 +63,16 @@ def solution_detail(name):
     if not solution:
         return "Solution not found", 404
 
+    # Maak een shallow copy en vervang alleen NaN door lege string
     cleaned = {}
     for k, v in solution.items():
         if isinstance(v, float) and math.isnan(v):
             cleaned[k] = ""
         else:
-            cleaned[k] = str(v)
+            cleaned[k] = v  # ✅ laat dicts/lists zoals 'categories' intact
 
     return render_template("solution_detail.html", solution=cleaned)
+
 
 @app.route("/compare")
 def compare():
@@ -88,22 +85,21 @@ def wizard():
     return render_template("wizard.html")
 
 @app.route("/wizard/results")
+
 def wizard_results():
     phase = request.args.get("phase")
     sensitive = request.args.get("sensitive")
     collab = request.args.get("collab")
     volume = request.args.get("volume")
 
-    candidates = (
-        storage_data["active_storage"] if phase == "active"
-        else storage_data["preservation_storage"]
-    )
+    candidates = storage_data["storage_data_2"]
 
     matches = []
     non_matches = []
 
     for s in candidates:
-        ok, reasons = match_with_reason(s, sensitive, collab, volume)
+        ok, reasons = match_with_reason(s, phase, sensitive, collab, volume)
+
         s_copy = s.copy()
         if ok:
             matches.append(s_copy)
@@ -113,28 +109,26 @@ def wizard_results():
 
     return render_template("wizard_results.html", matches=matches, non_matches=non_matches)
 
-@app.route("/api/filter", methods=["POST"])
 
+@app.route("/api/filter", methods=["POST"])
 def api_filter():
     data = request.get_json()
-    phase = data.get("phase") or None
-    sensitive = data.get("sensitive") or None
-    collab = data.get("collab") or None
-    volume = data.get("volume") or None
+    phase = data.get("phase")
+    sensitive = data.get("sensitive")
+    collab = data.get("collab")
+    volume = data.get("volume")
 
-    candidates = (
-        storage_data["active_storage"] if phase == "active"
-        else storage_data["preservation_storage"] if phase == "preservation"
-        else storage_data["active_storage"] + storage_data["preservation_storage"]
-    )
+    # Alles komt nu uit storage_data_2
+    candidates = storage_data["storage_data_2"]
 
     matches = []
     non_matches = []
-    print("Aantal active oplossingen:", len(storage_data["active_storage"]))
-    print("Aantal preservation oplossingen:", len(storage_data["preservation_storage"]))
+
+    print("Aantal oplossingen:", len(candidates))
 
     for s in candidates:
-        ok, reasons = match_with_reason(s, sensitive, collab, volume)
+        ok, reasons = match_with_reason(s, phase, sensitive, collab, volume)
+
         s_copy = s.copy()
         if ok:
             matches.append(s_copy)

@@ -1,47 +1,105 @@
 import math
 
-def match_with_reason(solution, sensitive, collab, volume):
+def match_with_reason(solution, phase=None, sensitive=None, collab=None, volume=None):
+    """
+    Determine suitability of a storage solution.
+    Returns: (ok: bool, reasons: list[str])
+    """
     reasons = []
 
+    # --- 1️⃣ Onderzoeksfase ---
+    lifecycle = solution.get("positioning_datalyfecycle", [])
+    if isinstance(lifecycle, str):
+        lifecycle = [lifecycle]
+    lifecycle_text = " ".join(lifecycle).lower()
 
-    # --- Sensitive data matching ---
+    if phase:
+        if phase == "active":
+            if not any(term in lifecycle_text for term in [
+                "collect", "create", "collaborate", "process", "analyse"
+            ]):
+                reasons.append("Not suitable for active research phase")
+        elif phase == "preservation":
+            if not any(term in lifecycle_text for term in [
+                "archive", "publish", "share", "evaluate", "reuse"
+            ]):
+                reasons.append("Not suitable for archiving or preservation phase")
+
+    # --- 2️⃣ Gevoelige data ---
     if sensitive and sensitive.lower() == "yes":
-        if solution.get("SupportsSensitive") is False:
-            reasons.append("Data not suitable for sensitive information")
+        sensitive_ok = False
+        for key in [
+            "sensitivity_classification",
+            "availability_classification",
+            "GDPR_compliant",
+            "Data CIA",
+            "file_encryption (by default)"
+        ]:
+            val = str(solution.get(key, "")).lower()
+            if any(term in val for term in [
+                "yes", "true", "sensitive", "high", "gdpr", "protected", "confidential"
+            ]):
+                sensitive_ok = True
+                break
+        if not sensitive_ok:
+            reasons.append("Not suitable for sensitive or personal data")
 
-    # --- Collaboration matching ---
-    collab_field = solution.get("Sharing and Collaboration", "")
-    if not isinstance(collab_field, str):
-        collab_field = ""
-    collab_text = collab_field.lower()
-
+    # --- 3️⃣ Samenwerking ---
     if collab:
-        collab = collab.lower()
-        if collab == "internal":
-            if not any(term in collab_text for term in ["internal", "binnen", "uu", "institutional", "within"]):
-                reasons.append("No support for internal collaboration")
-        elif collab == "external":
-            if not any(term in collab_text for term in ["external", "partners", "extern", "outside", "third parties", "external institutions"]):
-                reasons.append("No support for external collaboration")
+        collab_field = " ".join([
+            str(solution.get("collaboration", "")),
+            str(solution.get("collaboration_notes", "")),
+            str(solution.get("ownershiptransfer", "")),
+            str(solution.get("sync_equipment", "")),
+            str(solution.get("sync_HPC", "")),
+            str(solution.get("sync_R/JupyterNsync", "")),
+        ]).lower()
 
-    # --- Volume matching ---
+        if collab == "internal":
+            if not any(term in collab_field for term in [
+                "internal", "within", "uu", "institution", "organization", "department"
+            ]):
+                reasons.append("No internal collaboration support")
+        elif collab == "external":
+            if not any(term in collab_field for term in [
+                "external", "partner", "outside", "third", "other institution", "cross"
+            ]):
+                reasons.append("No external collaboration support")
+
+    # --- 4️⃣ Datavolume ---
+    # --- 4️⃣ Datavolume ---
     if volume:
-        volume = volume.lower()
-        if volume == "large":
-            if solution.get("SupportsLarge") is False:
-                reasons.append("Not suitable for large data volumes")
-        elif volume == "medium":
-            if solution.get("SupportsMedium") is False:
-                reasons.append("Not suitable for medium data volumes")
-        elif volume == "small":
-            if solution.get("SupportsSmall") is False:
-                reasons.append("Not suitable for small data volumes")
+        capacity = str(solution.get("capacity", "")).lower()
+        max_file = str(solution.get("max_file_size", "")).lower()
+
+        # alles wat "large" aankan, kan ook medium/small aan
+        # alles wat "medium" aankan, kan ook small aan
+        if "large" in capacity or "tb" in capacity:
+            supports_large = supports_medium = supports_small = True
+        elif "medium" in capacity or "gb" in capacity:
+            supports_medium = supports_small = True
+            supports_large = False
+        elif "small" in capacity or "mb" in capacity or "<" in capacity:
+            supports_small = True
+            supports_medium = supports_large = False
+        else:
+            # als we niets weten: conservatief aannemen dat alles kan
+            supports_small = supports_medium = supports_large = True
+
+        if volume == "large" and not supports_large:
+            reasons.append("Not suitable for large data volumes")
+        elif volume == "medium" and not supports_medium:
+            reasons.append("Not suitable for medium data volumes")
+        elif volume == "small" and not supports_small:
+            reasons.append("Not suitable for small data volumes")
+
 
     ok = len(reasons) == 0
     return ok, reasons
 
 
 def sanitize_for_json(obj):
+    """Remove NaN and Inf from objects before returning JSON."""
     if isinstance(obj, dict):
         return {k: sanitize_for_json(v) for k, v in obj.items()}
     elif isinstance(obj, list):

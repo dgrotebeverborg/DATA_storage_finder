@@ -1,101 +1,153 @@
 <!DOCTYPE html>
-<html lang="en" x-data>
+<html lang="en">
 <head>
   <meta charset="UTF-8">
   <title>{{ solution.name }}</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://unpkg.com/alpinejs" defer></script>
+  <style>
+    body {
+      max-width: 2000px;
+      margin: 0 auto;
+    }
+
+    .field-label {
+      display: inline-block;
+      width: 240px;
+      font-weight: 600;
+      color: #222;
+      vertical-align: top;
+    }
+
+    .field-value {
+      display: inline-block;
+      width: calc(100% - 280px);
+      vertical-align: top;
+      color: #333;
+      line-height: 1.5;
+      word-break: break-word;
+    }
+
+    .field-row {
+      border-bottom: 1px solid #e5e7eb;
+      padding: 4px 0;
+    }
+
+    .badge {
+      background: #e5e7eb;
+      color: #374151;
+      border-radius: 4px;
+      font-size: 0.75rem;
+      padding: 0.15rem 0.5rem;
+      margin-left: 0.25rem;
+      white-space: nowrap;
+    }
+
+    a.linkified {
+      color: #1d4ed8;
+      text-decoration: underline;
+      word-break: break-all;
+    }
+  </style>
 </head>
+
 <body class="bg-gray-100 font-sans p-6">
 
-  <!-- Top Bar -->
-  <div class="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
+  <!-- Header -->
+  <div class="flex justify-between items-center mb-6">
     <h1 class="text-2xl font-bold">{{ solution.name }}</h1>
     <div class="flex gap-2">
-      <a href="/"
-         class="bg-yellow-400 hover:bg-yellow-300 text-black font-semibold py-2 px-4 rounded">
-        ← Back to overview
-      </a>
-      <button onclick="window.print()"
-              class="bg-yellow-400 hover:bg-yellow-300 text-black font-semibold py-2 px-4 rounded">
-        🖨️ Download as PDF
-      </button>
+      <a href="/" class="bg-yellow-400 hover:bg-yellow-300 text-black font-semibold py-2 px-4 rounded">← Back</a>
+      <button onclick="window.print()" class="bg-yellow-400 hover:bg-yellow-300 text-black font-semibold py-2 px-4 rounded">🖸 Download PDF</button>
     </div>
   </div>
 
-  <!-- Main Content -->
+  {% macro section(title, content) %}
+    <div x-data="{open:true}" class="bg-white rounded shadow mb-4">
+      <button @click="open=!open"
+              class="w-full text-left px-4 py-2 font-bold bg-yellow-400 text-black rounded-t flex justify-between items-center">
+        {{ title }}
+        <span x-text="open ? '−' : '+'"></span>
+      </button>
+      <div x-show="open" x-transition class="px-6 pb-4 text-sm text-gray-700 leading-relaxed">
+        {{ content | safe }}
+      </div>
+    </div>
+  {% endmacro %}
+
+  {% set category_order = [
+    "General Information",
+    "Technical",
+    "Security & availability",
+    "Privacy",
+    "Financial",
+    "Support",
+    "UDCC Recommendation"
+  ] %}
+
+  {% set sections = dict() %}
+  {% set cats = solution.get("categories", {}) %}
+  {% set subs = solution.get("subcategories", {}) %}
+
+  {% for field, value in solution.items() %}
+    {% if value and field not in ["name", "categories", "subcategories"] %}
+      {% set maincat = cats.get(field, "General Information") %}
+      {% if maincat == "ID" or not maincat or maincat == "nan" %}
+        {% set maincat = "General Information" %}
+      {% endif %}
+
+      {# Leesbare veldnaam #}
+      {% set pretty_field = field
+        |replace("_", " ")
+        |replace("(", "")
+        |replace(")", "")
+        |replace("-", " ")
+        |title
+      %}
+
+      {# Link-detectie #}
+      {% set val_str = value|string %}
+      {% if "http://" in val_str or "https://" in val_str %}
+        {% set linked_val = '<a class="linkified" href="' + val_str + '" target="_blank">' + val_str + '</a>' %}
+      {% else %}
+        {% set linked_val = val_str %}
+      {% endif %}
+
+      {% set subcat = subs.get(field, "") %}
+      {% set badge = "" %}
+      {% if subcat and subcat != "nan" %}
+        {% set badge = '<span class="badge">' + subcat + '</span>' %}
+      {% endif %}
+
+      {% set line = "<div class='field-row'><span class='field-label'>" + pretty_field + ":</span> <span class='field-value'>" + linked_val + badge + "</span></div>" %}
+      {% if maincat not in sections %}
+        {% set _ = sections.update({maincat: line}) %}
+      {% else %}
+        {% set _ = sections.update({maincat: sections[maincat] + line}) %}
+      {% endif %}
+    {% endif %}
+  {% endfor %}
+
   <div class="flex flex-col lg:flex-row gap-6">
-
-    <!-- Left: Info Sections -->
-    <div class="flex-1 space-y-4">
-
-      {% macro section(title, html_content) %}
-        <div x-data="{ open: true }" class="bg-white rounded shadow">
-          <button @click="open = !open"
-                  class="w-full text-left px-4 py-2 font-bold bg-yellow-400 text-black rounded-t flex justify-between items-center">
-            {{ title }}
-            <span x-text="open ? '−' : '+'"></span>
-          </button>
-          <div x-show="open" x-transition class="px-4 pb-4 space-y-2 text-sm text-gray-700">
-            {{ html_content | safe }}
-          </div>
-        </div>
-      {% endmacro %}
-
-      {% set general_info = "" %}
-      {% if solution["Purpose"] %}{% set general_info = general_info + "<p><strong>Purpose:</strong> " + solution["Purpose"] + "</p>" %}{% endif %}
-      {% if solution["Extra Information Link"] %}{% set general_info = general_info + "<p><strong>Extra Information Link:</strong> " + solution["Extra Information Link"] + "</p>" %}{% endif %}
-      {% if solution["Storage type"] %}{% set general_info = general_info + "<p><strong>Storage type:</strong> " + solution["Storage type"] + "</p>" %}{% endif %}
-      {% if solution["Storage location"] %}{% set general_info = general_info + "<p><strong>Storage location:</strong> " + solution["Storage location"] + "</p>" %}{% endif %}
-      {{ section("📄 General Information", general_info) }}
-
-      {% set costs_access = "" %}
-      {% if solution["Costs and eligibility"] %}{% set costs_access = costs_access + "<p><strong>Costs and eligibility:</strong> " + solution["Costs and eligibility"] + "</p>" %}{% endif %}
-      {% if solution["How to access"] %}{% set costs_access = costs_access + "<p><strong>How to access:</strong> " + solution["How to access"] + "</p>" %}{% endif %}
-      {% if solution["Available licenses"] %}{% set costs_access = costs_access + "<p><strong>Available licenses:</strong> " + solution["Available licenses"] + "</p>" %}{% endif %}
-      {% if solution["Internal contact point for RDM"] %}{% set costs_access = costs_access + "<p><strong>Internal contact point for RDM:</strong> " + solution["Internal contact point for RDM"] + "</p>" %}{% endif %}
-      {{ section("💰 Costs & Access", costs_access) }}
-
-      {% set security = "" %}
-      {% if solution["Data sensitivity classification"] %}{% set security = security + "<p><strong>Data sensitivity classification:</strong> " + solution["Data sensitivity classification"] + "</p>" %}{% endif %}
-      {% if solution["File encryption"] %}{% set security = security + "<p><strong>File encryption:</strong> " + solution["File encryption"] + "</p>" %}{% endif %}
-      {% if solution["Remote access"] %}{% set security = security + "<p><strong>Remote access:</strong> " + solution["Remote access"] + "</p>" %}{% endif %}
-      {% if solution["Mobile app support"] %}{% set security = security + "<p><strong>Mobile app support:</strong> " + solution["Mobile app support"] + "</p>" %}{% endif %}
-      {% if solution["Sync to Client"] %}{% set security = security + "<p><strong>Sync to Client:</strong> " + solution["Sync to Client"] + "</p>" %}{% endif %}
-      {{ section("🔐 Security & Sensitivity", security) }}
-
-      {% set storage = "" %}
-      {% if solution["Storage capacity"] %}{% set storage = storage + "<p><strong>Storage capacity:</strong> " + solution["Storage capacity"] + "</p>" %}{% endif %}
-      {% if solution["Maximum File size"] %}{% set storage = storage + "<p><strong>Maximum File size:</strong> " + solution["Maximum File size"] + "</p>" %}{% endif %}
-      {% if solution["File formats"] %}{% set storage = storage + "<p><strong>File formats:</strong> " + solution["File formats"] + "</p>" %}{% endif %}
-      {% if solution["Versioning"] %}{% set storage = storage + "<p><strong>Versioning:</strong> " + solution["Versioning"] + "</p>" %}{% endif %}
-      {% if solution["Complete data deletion"] %}{% set storage = storage + "<p><strong>Complete data deletion:</strong> " + solution["Complete data deletion"] + "</p>" %}{% endif %}
-      {% if solution["Back-ups & Recovery"] %}{% set storage = storage + "<p><strong>Back-ups & Recovery:</strong> " + solution["Back-ups & Recovery"] + "</p>" %}{% endif %}
-      {{ section("📦 Storage & Capacity", storage) }}
-
-      {% set sharing = "" %}
-      {% if solution["Sharing and Collaboration"] %}{% set sharing = sharing + "<p><strong>Sharing and Collaboration:</strong> " + solution["Sharing and Collaboration"] + "</p>" %}{% endif %}
-      {{ section("🔄 Sharing & Collaboration", sharing) }}
-
-      {% set compliance = "" %}
-      {% if solution["Longterm storage"] %}{% set compliance = compliance + "<p><strong>Longterm storage:</strong> " + solution["Longterm storage"] + "</p>" %}{% endif %}
-      {% if solution["Metadata"] %}{% set compliance = compliance + "<p><strong>Metadata:</strong> " + solution["Metadata"] + "</p>" %}{% endif %}
-      {% if solution["Data citation"] %}{% set compliance = compliance + "<p><strong>Data citation:</strong> " + solution["Data citation"] + "</p>" %}{% endif %}
-      {% if solution["PID policy"] %}{% set compliance = compliance + "<p><strong>PID policy:</strong> " + solution["PID policy"] + "</p>" %}{% endif %}
-      {% if solution["Aggregated to search service"] %}{% set compliance = compliance + "<p><strong>Aggregated to search service:</strong> " + solution["Aggregated to search service"] + "</p>" %}{% endif %}
-      {% if solution["Search engines harvesting?"] %}{% set compliance = compliance + "<p><strong>Search engines harvesting?</strong> " + solution["Search engines harvesting?"] + "</p>" %}{% endif %}
-      {{ section("🧾 Compliance & Archiving", compliance) }}
-
+    <div class="flex-1">
+      {% for cat in category_order %}
+        {% if sections.get(cat) %}
+          {{ section(cat, sections[cat]) }}
+        {% endif %}
+      {% endfor %}
+      {% for cat, content in sections.items() %}
+        {% if cat not in category_order %}
+          {{ section(cat, content) }}
+        {% endif %}
+      {% endfor %}
     </div>
 
-    <!-- Right: Contact Card -->
     <div class="w-full lg:w-1/3 bg-white p-4 rounded shadow text-sm text-gray-700 h-fit">
       <h2 class="text-lg font-semibold mb-2">📞 Contact</h2>
-      <p><strong>Name:</strong><br>{{ solution.get("Internal contact point for RDM", "—") }}</p>
+      <p><strong>Name:</strong><br>{{ solution.get("Internal_contact_point_RDM", "—") }}</p>
       <p class="mt-2"><strong>Email:</strong><br>{{ solution.get("Email", "—") }}</p>
       <p class="mt-2"><strong>Phone:</strong><br>{{ solution.get("Phone", "—") }}</p>
     </div>
-
   </div>
 
 </body>
