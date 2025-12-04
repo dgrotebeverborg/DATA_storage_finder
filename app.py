@@ -13,7 +13,7 @@ app.secret_key = os.urandom(24)  # Needed for session memory
 
 CHROMA_DIR = "chroma_storage"
 EMBEDDING_MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
-LLAMA_MODEL_PATH = "models/llama3/llama-pro-8b-instruct.Q4_K_M.gguf"  # ✅ Your local path
+LLAMA_MODEL_PATH = "/home/dgrotebeve/models/Meta-Llama-3.1-8B-Instruct-Q5_K_M.gguf"
 
 
 # Load data on startup
