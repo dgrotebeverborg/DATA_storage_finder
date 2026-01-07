@@ -1,155 +1,230 @@
 # logic/rag.py
-import os
-import re
-from typing import List
+from __future__ import annotations
 
-from langchain_community.embeddings import HuggingFaceEmbeddings
+from pathlib import Path
+from typing import List, Tuple, Dict, Any, Optional
+
 from langchain_community.vectorstores import Chroma
-from langchain_community.chat_models import ChatLlamaCpp  # ⬅️ chat-wrapper gebruiken
-from langchain.prompts import ChatPromptTemplate
+from langchain_community.embeddings import HuggingFaceEmbeddings
+from langchain_community.llms import LlamaCpp
 
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-CHROMA_DIR = os.path.join(BASE_DIR, "chroma_storage")
 
-EMBEDDING_MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
-LLAMA_MODEL_PATH = "/home/dgrotebeve/models/Meta-Llama-3.1-8B-Instruct-Q5_K_M.gguf"
+# -------------------------
+# Config (absolute paths)
+# -------------------------
+BASE_DIR = Path(__file__).resolve().parent.parent  # pas aan als jouw structuur anders is
+
+CHROMA_DIR = str(BASE_DIR / "chroma_storage")
 COLLECTION_NAME = "storage_unified"
 
-QA_PROMPT = ChatPromptTemplate.from_messages([
-    ("system",
-     "You are an expert assistant for research data management at Utrecht University. "
-     "Answer ONLY using facts present inside <context>…</context>. "
-     "If the context truly contains no relevant information, output exactly:\n"
-     "I don’t know based on my available sources.\n"
-     "Rules:\n"
-     "- Output MUST be exactly one <answer>…</answer> block.\n"
-     "- Do not repeat or restate the question.\n"
-     "- Do not include labels like 'Question:', 'Answer:', 'Note:', 'Human:', or any extra text.\n"
-     "- No greetings or preambles.\n"
-     "- 2–4 sentences max."
-     ),
-    ("human",
-     "<context>\n{context}\n</context>\n"
-     "<question>{question}</question>\n"
-     "Return only:\n<answer>…your answer…</answer>")
-])
+EMBEDDING_MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
+LLAMA_MODEL_PATH = str(BASE_DIR / "models" / "Meta-Llama-3.1-8B-Instruct-Q4_K_M.gguf")
 
-STOP_TOKENS: List[str] = [
-    "</answer>", "Question:", "Answer:", "Note:", "Human:",
-    "<question>", "</question>", "<context>", "</context>",
-    "<|eot_id|>"  # Llama-3 end-of-turn
-]
+TOP_K = 5
 
-_ANSWER_TAG_RE = re.compile(r"<answer>\s*(.*?)\s*</answer>", re.IGNORECASE | re.DOTALL)
-_LABEL_CLEAN_RE = re.compile(r"^(?:\s*(?:Question|Answer|Note|Human)\s*:\s*)+", re.IGNORECASE | re.MULTILINE)
+# Chroma score is meestal "distance": lager = beter
+MAX_DISTANCE_THRESHOLD = 0.80  # tune: hoger = minder "I don't know", lager = strenger
 
-_singleton = None
+# Hoeveel context we max in de prompt stoppen (karakters)
+MAX_CONTEXT_CHARS = 9000
 
-def _init():
-    global _singleton
-    if _singleton is not None:
-        return _singleton
-
-    print("🧠 Initializing storage RAG…")
-
-    embeddings = HuggingFaceEmbeddings(
-        model_name=EMBEDDING_MODEL_NAME,
-        model_kwargs={"device": "cuda"}
-    )
-
-    vectordb = Chroma(
-        persist_directory=CHROMA_DIR,
-        collection_name=COLLECTION_NAME,
-        embedding_function=embeddings
-    )
-
-    # ✅ Gebruik ChatLlamaCpp met stops en lage temperatuur
-    llm = ChatLlamaCpp(
-        model_path=LLAMA_MODEL_PATH,
-        temperature=0.0,
-        top_p=0.95,
-        max_tokens=512,
-        n_ctx=32768,
-        n_gpu_layers=-1,
-        n_batch=512,
-        repeat_penalty=1.1,
-        stop=STOP_TOKENS,
-        verbose=False,
-        # chat_format wordt automatisch uit het model gehaald (llama-3.*)
-    )
-
-    _singleton = {"llm": llm, "vectordb": vectordb}
-    print("✅ RAG ready.")
-    return _singleton
+DEBUG_RETRIEVAL = False
 
 
-def _extract_answer(text: str) -> str:
-    if not text:
-        return ""
-    if "</answer>" in text:
-        text = text.split("</answer>", 1)[0] + "</answer>"
-    m = _ANSWER_TAG_RE.search(text)
-    if m:
-        return m.group(1).strip()
-    return _LABEL_CLEAN_RE.sub("", text).strip()
+# -------------------------
+# Singletons
+# -------------------------
+_embeddings: Optional[HuggingFaceEmbeddings] = None
+_vectordb: Optional[Chroma] = None
+_llm: Optional[LlamaCpp] = None
 
 
-def _is_grounded(context: str, answer: str) -> bool:
-    if not context.strip():
+def _get_embeddings() -> HuggingFaceEmbeddings:
+    global _embeddings
+    if _embeddings is None:
+        _embeddings = HuggingFaceEmbeddings(model_name=EMBEDDING_MODEL_NAME,  model_kwargs={"device": "cuda"}  )
+    return _embeddings
+
+
+def _get_vectordb() -> Chroma:
+    global _vectordb
+    if _vectordb is None:
+        _vectordb = Chroma(
+            persist_directory=CHROMA_DIR,
+            embedding_function=_get_embeddings(),
+            collection_name=COLLECTION_NAME,
+        )
+    return _vectordb
+
+
+def _get_llm() -> LlamaCpp:
+    global _llm
+    if _llm is None:
+        _llm = LlamaCpp(
+            model_path=LLAMA_MODEL_PATH,
+            n_gpu_layers=-1,
+            n_ctx=8192,
+            temperature=0.0,       # 🔥 strak: geen creativiteit
+            top_p=0.9,
+            repeat_penalty=1.15,   # 🔥 minder herhaling
+            max_tokens=220,        # 🔥 compact
+            verbose=False,
+        )
+    return _llm
+
+
+def _retrieve_with_scores(query: str, k: int = TOP_K):
+    """
+    Returns list of (Document, score). For Chroma this is typically a distance score (lower is better).
+    """
+    return _get_vectordb().similarity_search_with_score(query, k=k)
+
+
+def _is_relevant(retrieved) -> bool:
+    if not retrieved:
         return False
-    ctx_lower = context.lower()
-    sentences = re.split(r"[.!?]\s+", answer)
-    for s in sentences:
-        tokens = [w.lower() for w in re.findall(r"\b\w+\b", s) if len(w) >= 4]
-        if sum(1 for w in tokens if w in ctx_lower) >= 2:
-            return True
-    return False
+
+    # Count how many docs are reasonably close
+    good_hits = [score for _, score in retrieved if score <= MAX_DISTANCE_THRESHOLD]
+
+    # Require at least 2 good hits for confidence
+    return len(good_hits) >= 2
 
 
-def ask_storage_question(user_input: str, chat_history=None, debug: bool = True) -> str:
-    chain = _init()
 
-    # 🔎 Iets strengere retrieval (MMR + hogere threshold) om generieke adviestekst te vermijden
-    retriever = chain["vectordb"].as_retriever(
-        search_type="mmr",
-        search_kwargs={
-            "k": 6,
-            "fetch_k": 20,
-            "lambda_mult": 0.4,           # diverser
-            "score_threshold": 0.30        # iets strenger
-        },
+def _build_prompt(question: str, context_blocks: List[str]) -> str:
+    context_text = "\n\n".join(context_blocks).strip()
+    if len(context_text) > MAX_CONTEXT_CHARS:
+        context_text = context_text[:MAX_CONTEXT_CHARS] + "\n\n[Context truncated]"
+
+    return (
+        "You are Storage Finder, a factual assistant for Utrecht University data storage guidance.\n\n"
+        "STRICT RULES (must follow):\n"
+        "- Use ONLY the provided context. Do NOT use outside knowledge.\n"
+        "- Do NOT invent numbers, limits, prices, or policies.\n"
+        "- Do NOT suggest tools or services unless explicitly mentioned in the context.\n"
+        "- Treat 'Yoda' as the Utrecht University data management system (not Star Wars).\n"
+        "- Do NOT imitate characters, writing styles, or personas.\n"
+        "- Do NOT include meta-commentary, notes, or self-evaluation.\n"
+        "- Do NOT repeat the same fact in different words.\n"
+        "- ONLY if the context does NOT contain enough information to answer the question at all,\n"
+        "  reply exactly:\n"
+        "  I don't know based on the documentation.\n"
+        "- If partial information IS available, answer using ONLY that information and do NOT add the fallback sentence.\n\n"
+        "ANSWER STYLE:\n"
+        "- Use a single-level bullet list only.\n"
+        "- Do NOT nest bullets and do NOT use section headers.\n"
+        "- Each bullet must be a complete sentence.\n"
+        "- Use 4–8 bullets.\n"
+        "- If the question is 'what is X', include (only if supported by context):\n"
+        "  what it is, main purpose, key benefits, and a typical use-case.\n"
+        "- Include concrete numbers only if they appear in the context, and only once.\n\n"
+        f"Context:\n{context_text}\n\n"
+        f"Question:\n{question}\n\n"
+        "Answer (bullet points only):"
     )
 
-    docs = retriever.get_relevant_documents(user_input)
-    context_text = "\n\n".join([d.page_content for d in docs]) if docs else ""
 
-    if debug:
-        if docs:
-            print("\n🔍 Retrieved context documents:")
-            for i, doc in enumerate(docs, 1):
-                meta = getattr(doc, "metadata", {})
-                src = meta.get("source", "unknown")
-                snippet = (doc.page_content or "")[:200].replace("\n", " ")
-                print(f"  {i}. {src} → {snippet}...")
-        else:
-            print("⚠️ No relevant documents retrieved.")
+def _strip_meta(text: str) -> str:
+    BAD_PREFIXES = (
+        "note:",
+        "the final answer",
+        "corrected answer",
+        "this answer",
+        "i have followed",
+        "the answer includes",
+    )
 
-    if not context_text.strip():
-        return "I don’t know based on my available sources."
+    lines = []
+    for ln in text.splitlines():
+        l = ln.strip()
+        if not l:
+            continue
+        if l.lower().startswith(BAD_PREFIXES):
+            break  # alles daarna weggooien
+        lines.append(l)
 
-    # ✅ Geef de messages rechtstreeks aan het chatmodel (niet samenplakken!)
-    messages = QA_PROMPT.format_messages(context=context_text, question=user_input)
-    ai_msg = chain["llm"].invoke(messages)     # ChatLlamaCpp → AIMessage
-    raw_text = ai_msg.content or ""
+    return "\n".join(lines).strip()
 
-    answer = _extract_answer(raw_text).strip()
 
-    if not answer or not _is_grounded(context_text, answer):
-        return "I don’t know based on my available sources."
+def _dedupe_lines(text: str) -> str:
+    """
+    Optional safety net against repeated paragraphs/lines.
+    """
+    lines = [ln.strip() for ln in (text or "").splitlines()]
+    out = []
+    seen = set()
+    for ln in lines:
+        if not ln:
+            continue
+        key = ln.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(ln)
+    return "\n".join(out).strip()
 
-    # Trim tot max 4 zinnen
-    sentences = re.split(r"(?<=[.!?])\s+", answer)
-    if len(sentences) > 4:
-        answer = " ".join(sentences[:4]).strip()
+
+def ask_storage_question(
+    user_input: str,
+    chat_history: List[Tuple[str, str]] | List[Dict[str, Any]] | None = None,
+) -> str:
+    """
+    Strict RAG answerer.
+    - chat_history accepted for compatibility, but intentionally NOT used (prevents persona leakage and bad rewrites).
+    """
+    question = (user_input or "").strip()
+    hits = _get_vectordb().similarity_search_with_score("what is surfdrive", k=5)
+    for d, s in hits:
+        print("score", s, "src", d.metadata.get("source"), d.page_content[:120])
+
+    if not question:
+        return "I don't know based on the documentation."
+
+    retrieved = _retrieve_with_scores(question, k=TOP_K)
+
+    if DEBUG_RETRIEVAL:
+        print("DEBUG retrieved:", len(retrieved))
+        for i, (d, score) in enumerate(retrieved, 1):
+            snippet = (d.page_content or "").replace("\n", " ")[:200]
+            print(i, f"score={score:.3f}", d.metadata, snippet)
+
+    # HARD GATE: no good context => no answer
+    if not _is_relevant(retrieved):
+        return "I don't know based on the documentation."
+
+    # Build context blocks with lightweight source labels
+    context_blocks: List[str] = []
+    for doc, score in retrieved:
+        src = doc.metadata.get("source", "unknown")
+        text = (doc.page_content or "").strip()
+        if not text:
+            continue
+        context_blocks.append(f"[source: {src} | score: {score:.3f}]\n{text}")
+
+    prompt = _build_prompt(question, context_blocks)
+
+    llm = _get_llm()
+
+
+    # LangChain compat: sommige versies gebruiken .invoke(), andere .predict()
+    if hasattr(llm, "invoke"):
+        answer = llm.invoke(prompt)
+    elif hasattr(llm, "predict"):
+        answer = llm.predict(prompt)
+    else:
+        raise TypeError("Your LlamaCpp wrapper does not support invoke() or predict().")
+
+    # Some LLM wrappers may return dict-like; normalize
+    if isinstance(answer, dict):
+        answer = answer.get("text") or answer.get("output") or str(answer)
+
+    answer = str(answer).strip()
+    answer = _dedupe_lines(answer)
+    answer = _strip_meta(answer)
+
+    # Extra guard: if model still tries to be helpful without support, enforce the fallback
+    if not answer:
+        return "I don't know based on the documentation."
 
     return answer

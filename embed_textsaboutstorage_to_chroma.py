@@ -1,17 +1,23 @@
 import os
-import json
 import glob
+from pathlib import Path
+
 from langchain_chroma import Chroma
 from langchain_huggingface import HuggingFaceEmbeddings
-from langchain.docstore.document import Document
-from langchain.text_splitter import RecursiveCharacterTextSplitter
+
+from langchain_core.documents import Document
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+
 from langchain_community.document_loaders import UnstructuredURLLoader, PyPDFLoader
 
-# --- Werken vanuit de map waarin dit script zich bevindt ---
+
+# --- Werk vanuit de map waarin dit script zich bevindt ---
 os.chdir(os.path.dirname(os.path.abspath(__file__)))
 
-# === Configuratie ===
+# === Config ===
 CHROMA_DIR = "chroma_storage"
+COLLECTION_NAME = "storage_unified"
+
 EMBEDDING_MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
 
 URLS = [
@@ -40,104 +46,127 @@ URLS = [
     "https://www.uu.nl/en/research/research-data-management/guides/fair-data",
     "https://www.uu.nl/en/research/research-data-management",
 
-    # SURF stuff
+    # --- SURF stuff ---
     "https://www.surf.nl/en/surfdrive-safe-and-reliable-cloud-storage",
     "https://www.surf.nl/en/surfdrive",
     "https://www.surf.nl/en/knowledge-base/surfdrive-for-researchers-and-lecturers",
-
 ]
 
+PDF_DIR = "pdf"
+FACTSHEETS_DIR = "data/factsheets"   # <-- jouw nieuwe output map met .md
+FACTSHEETS_GLOB = "*.md"
 
-PDF_DIR = "pdf"  # map met lokale PDF's
-JSON_PATH = "data/storage_data_2.json"
 
+def load_factsheet_docs() -> list[Document]:
+    """
+    Laadt factsheets/*.md en splitst ze in grotere chunks.
+    Factsheets zijn al narratief, dus grotere chunk_size werkt beter.
+    """
+    docs: list[Document] = []
+    fs_dir = Path(FACTSHEETS_DIR)
 
-def load_json_docs():
-    """Laadt de JSON en zet om naar Documenten."""
-    docs = []
-    if not os.path.exists(JSON_PATH):
-        print("⚠️ JSON-bestand niet gevonden:", JSON_PATH)
+    if not fs_dir.exists():
+        print(f"⚠️ Factsheets map niet gevonden: {fs_dir.resolve()}")
         return docs
 
-    with open(JSON_PATH, "r", encoding="utf-8") as f:
-        data = json.load(f)
-        data = data.get("storage_data_2", data)
+    md_files = sorted(fs_dir.glob(FACTSHEETS_GLOB))
+    if not md_files:
+        print(f"⚠️ Geen factsheets gevonden in: {fs_dir.resolve()}")
+        return docs
 
-    for s in data:
-        text = f"{s.get('name','')}\n"
-        for k, v in s.items():
-            if k not in ["name", "categories"]:
-                text += f"{k}: {v}\n"
-        docs.append(Document(page_content=text, metadata={"source": "json"}))
+    splitter = RecursiveCharacterTextSplitter(chunk_size=1200, chunk_overlap=120)
 
-    print(f" Loaded {len(docs)} JSON entries")
+    for md_path in md_files:
+        text = md_path.read_text(encoding="utf-8", errors="ignore").strip()
+        if not text:
+            continue
+
+        # Maak 1 document, split daarna
+        base_doc = Document(
+            page_content=text,
+            metadata={
+                "source_type": "factsheet",
+                "source": str(md_path).replace("\\", "/"),
+                "solution_name": md_path.stem,  # slug; als je liever titel wilt: parse de eerste "# ..."
+            },
+        )
+
+        chunks = splitter.split_documents([base_doc])
+        docs.extend(chunks)
+
+    print(f"📄 Loaded and split {len(docs)} factsheet chunks from {len(md_files)} factsheets")
     return docs
 
 
-def load_url_docs():
-    """Laadt teksten van UU-webpagina's."""
-    docs = []
+def load_url_docs() -> list[Document]:
+    """Laadt teksten van webpagina's en splitst in kleine chunks."""
+    docs: list[Document] = []
     try:
         loader = UnstructuredURLLoader(urls=URLS)
         raw_docs = loader.load()
 
-        splitter = RecursiveCharacterTextSplitter(chunk_size=300, chunk_overlap=30)
+        splitter = RecursiveCharacterTextSplitter(chunk_size=450, chunk_overlap=60)
         docs = splitter.split_documents(raw_docs)
+
         for d in docs:
-            d.metadata["source"] = "url"
-        print(f" Loaded and split {len(docs)} URL chunks")
+            # Laat de oorspronkelijke url (als aanwezig) staan; voeg alleen type toe
+            d.metadata["source_type"] = "url"
+            if "source" not in d.metadata:
+                d.metadata["source"] = "url"
+        print(f"🌐 Loaded and split {len(docs)} URL chunks")
     except Exception as e:
         print("⚠️ Fout bij laden van URLs:", e)
     return docs
 
 
-def load_pdf_docs():
-    """Laadt alle PDF's uit de map pdf/."""
-    docs = []
+def load_pdf_docs() -> list[Document]:
+    """Laadt alle PDF's uit pdf/."""
+    docs: list[Document] = []
     pdf_files = glob.glob(os.path.join(PDF_DIR, "*.pdf"))
     for pdf_file in pdf_files:
         try:
             loader = PyPDFLoader(pdf_file)
             pdf_docs = loader.load()
             for d in pdf_docs:
+                d.metadata["source_type"] = "pdf"
                 d.metadata["source"] = os.path.basename(pdf_file)
             docs.extend(pdf_docs)
         except Exception as e:
             print(f"⚠️ Fout bij laden van {pdf_file}: {e}")
-    print(f" Loaded {len(docs)} pages from {len(pdf_files)} PDFs")
+    print(f"📚 Loaded {len(docs)} pages from {len(pdf_files)} PDFs")
     return docs
 
 
 if __name__ == "__main__":
-    # 1️⃣  Oude Chroma-store opruimen
+    # 1) Oude Chroma-store opruimen
     if os.path.exists(CHROMA_DIR):
-        print("粒 Removing old Chroma store...")
+        print("🧹 Removing old Chroma store...")
         import shutil
         shutil.rmtree(CHROMA_DIR)
 
-    # 2️⃣  Combineer alle bronnen
-    all_docs = []
-    all_docs.extend(load_json_docs())
+    # 2) Combineer bronnen (factsheets eerst: die wil je het meest)
+    all_docs: list[Document] = []
+    all_docs.extend(load_factsheet_docs())
     all_docs.extend(load_url_docs())
     all_docs.extend(load_pdf_docs())
 
-    print(f"茶 Total combined documents: {len(all_docs)}")
+    print(f"🧾 Total combined documents: {len(all_docs)}")
 
     if not all_docs:
         print("⚠️ Geen documenten gevonden — stop.")
-        exit()
+        raise SystemExit(1)
 
-    # 3️⃣  Embed alles op GPU
+    # 3) Embed (GPU)
     embeddings = HuggingFaceEmbeddings(
         model_name=EMBEDDING_MODEL_NAME,
-        model_kwargs={"device": "cuda"}
+        model_kwargs={"device": "cuda"},
     )
 
     vectordb = Chroma.from_documents(
         documents=all_docs,
         embedding=embeddings,
         persist_directory=CHROMA_DIR,
-        collection_name="storage_unified"
+        collection_name=COLLECTION_NAME,
     )
 
     print(f"✅ Unified Chroma collection built with {len(all_docs)} docs at '{CHROMA_DIR}'")

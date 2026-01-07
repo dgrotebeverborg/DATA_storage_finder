@@ -5,7 +5,8 @@ from chatbot.storage_rag import ask_storage_question
 
 from flask import Flask, request, jsonify, render_template, session
 
-from langchain.chains import ConversationalRetrievalChain
+# from langchain_community.chains import ConversationalRetrievalChain
+
 import os
 
 app = Flask(__name__)
