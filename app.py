@@ -12,10 +12,6 @@ import os
 app = Flask(__name__)
 app.secret_key = os.urandom(24)  # Needed for session memory
 
-CHROMA_DIR = "chroma_storage"
-EMBEDDING_MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
-LLAMA_MODEL_PATH = "/home/dgrotebeve/models/Meta-Llama-3.1-8B-Instruct-Q5_K_M.gguf"
-
 
 # Load data on startup
 DATA_PATH = os.path.join("data", "storage_data_2.json")

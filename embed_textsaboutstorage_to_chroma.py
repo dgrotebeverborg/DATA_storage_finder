@@ -3,22 +3,23 @@ import glob
 from pathlib import Path
 
 from langchain_chroma import Chroma
-from langchain_huggingface import HuggingFaceEmbeddings
+
 
 from langchain_core.documents import Document
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 from langchain_community.document_loaders import UnstructuredURLLoader, PyPDFLoader
-
+from langchain_ollama import OllamaEmbeddings
 
 # --- Werk vanuit de map waarin dit script zich bevindt ---
 os.chdir(os.path.dirname(os.path.abspath(__file__)))
 
 # === Config ===
-CHROMA_DIR = "chroma_storage"
+CHROMA_DIR = "chroma"
 COLLECTION_NAME = "storage_unified"
+EMBEDDING_MODEL_NAME = "nomic-embed-text"
 
-EMBEDDING_MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
+
 
 URLS = [
     # --- Core Yoda pages ---
@@ -74,8 +75,8 @@ def load_factsheet_docs() -> list[Document]:
         print(f"⚠️ Geen factsheets gevonden in: {fs_dir.resolve()}")
         return docs
 
-    splitter = RecursiveCharacterTextSplitter(chunk_size=1200, chunk_overlap=120)
 
+    splitter = RecursiveCharacterTextSplitter(chunk_size=900, chunk_overlap=120)
     for md_path in md_files:
         text = md_path.read_text(encoding="utf-8", errors="ignore").strip()
         if not text:
@@ -157,10 +158,11 @@ if __name__ == "__main__":
         raise SystemExit(1)
 
     # 3) Embed (GPU)
-    embeddings = HuggingFaceEmbeddings(
-        model_name=EMBEDDING_MODEL_NAME,
-        model_kwargs={"device": "cuda"},
+    embeddings = OllamaEmbeddings(
+        model=EMBEDDING_MODEL_NAME
+
     )
+
 
     vectordb = Chroma.from_documents(
         documents=all_docs,

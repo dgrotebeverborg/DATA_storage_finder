@@ -1,11 +1,19 @@
 from langchain_community.vectorstores import Chroma
 from langchain_community.embeddings import HuggingFaceEmbeddings
-from langchain.docstore.document import Document
+from langchain_core.documents import Document
+
 import json, os
 
 # Config
-CHROMA_DIR = "chroma_storage"  # 💡 zelfde map als in rag.py
-EMBEDDING_MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
+CHROMA_DIR = "chroma_bge_m3"
+
+from langchain_community.embeddings import OllamaEmbeddings
+EMBEDDING_MODEL_NAME = "bge-m3"
+
+embeddings = OllamaEmbeddings(
+    model=EMBEDDING_MODEL_NAME
+)
+
 
 # 1️⃣ Load JSON
 with open("data/storage_data_2.json", "r", encoding="utf-8") as f:

@@ -7,7 +7,7 @@ from langchain.embeddings import HuggingFaceEmbeddings
 
 # === Configuration ===
 PDF_DIR = "pdf"
-CHROMA_DIR = "chroma_storage"
+CHROMA_DIR = "chroma_bge_m3"
 EMBEDDING_MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"  # small, fast, good
 
 def load_pdfs(pdf_folder):

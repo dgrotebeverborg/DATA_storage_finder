@@ -5,7 +5,7 @@ from langchain_community.vectorstores import Chroma
 from langchain_community.embeddings import HuggingFaceEmbeddings
 
 # === Configuration ===
-CHROMA_DIR = "chroma_storage"  # 💡 zelfde map als in rag.py
+CHROMA_DIR = "chroma_bge_m3"# 💡
 EMBEDDING_MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
 
 # Voeg hier je URL's toe
