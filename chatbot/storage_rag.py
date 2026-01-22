@@ -5,30 +5,63 @@ from pathlib import Path
 from typing import List, Tuple, Dict, Any, Optional
 
 from langchain_community.vectorstores import Chroma
-from langchain_community.embeddings import HuggingFaceEmbeddings
+from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_community.llms import LlamaCpp
 
+# Correcte imports voor LangChain 1.2.x (2026)
+from langchain_community.retrievers import BM25Retriever
+from langchain_core.documents import Document
+from typing import List as TypingList
+
+
+# Simple ensemble retriever implementation
+class EnsembleRetriever:
+    def __init__(self, retrievers: TypingList, weights: TypingList[float]):
+        self.retrievers = retrievers
+        self.weights = weights
+
+    def invoke(self, query: str) -> TypingList[Document]:
+        all_docs = []
+        for retriever, weight in zip(self.retrievers, self.weights):
+            docs = retriever.invoke(query) if hasattr(retriever, 'invoke') else retriever.get_relevant_documents(query)
+            all_docs.extend(docs)
+
+        # Remove duplicates based on page_content
+        seen_content = set()
+        unique_docs = []
+        for doc in all_docs:
+            content_hash = hash(doc.page_content)
+            if content_hash not in seen_content:
+                seen_content.add(content_hash)
+                unique_docs.append(doc)
+
+        return unique_docs
+
+# Voor reranking
+from sentence_transformers import CrossEncoder
+
 
 # -------------------------
-# Config (absolute paths)
+# Config
 # -------------------------
-BASE_DIR = Path(__file__).resolve().parent.parent  # pas aan als jouw structuur anders is
+BASE_DIR = Path(__file__).resolve().parent.parent
 
 CHROMA_DIR = str(BASE_DIR / "chroma_storage")
-COLLECTION_NAME = "storage_unified"
+COLLECTION_NAME = "storage_unified_2026"          # pas aan naar jouw nieuwe collectie
 
-EMBEDDING_MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
+EMBEDDING_MODEL_NAME = "intfloat/multilingual-e5-large-instruct"
 LLAMA_MODEL_PATH = str(BASE_DIR / "models" / "Meta-Llama-3.1-8B-Instruct-Q4_K_M.gguf")
 
-TOP_K = 5
-
-# Chroma score is meestal "distance": lager = beter
-MAX_DISTANCE_THRESHOLD = 0.80  # tune: hoger = minder "I don't know", lager = strenger
-
-# Hoeveel context we max in de prompt stoppen (karakters)
+RETRIEVE_K = 20
+RERANK_TOP = 6
+MAX_DISTANCE_THRESHOLD = 0.75
 MAX_CONTEXT_CHARS = 9000
+DEBUG_RETRIEVAL = True
 
-DEBUG_RETRIEVAL = False
+RERANKER_MODEL = "jinaai/jina-reranker-v2-base-multilingual"
+
+LLM_TEMPERATURE = 0.15
+LLM_MAX_TOKENS = 450
 
 
 # -------------------------
@@ -37,12 +70,17 @@ DEBUG_RETRIEVAL = False
 _embeddings: Optional[HuggingFaceEmbeddings] = None
 _vectordb: Optional[Chroma] = None
 _llm: Optional[LlamaCpp] = None
+_reranker: Optional[CrossEncoder] = None
 
 
 def _get_embeddings() -> HuggingFaceEmbeddings:
     global _embeddings
     if _embeddings is None:
-        _embeddings = HuggingFaceEmbeddings(model_name=EMBEDDING_MODEL_NAME,  model_kwargs={"device": "cuda"}  )
+        _embeddings = HuggingFaceEmbeddings(
+            model_name=EMBEDDING_MODEL_NAME,
+            model_kwargs={"device": "cuda"},
+            encode_kwargs={"normalize_embeddings": True},
+        )
     return _embeddings
 
 
@@ -64,38 +102,72 @@ def _get_llm() -> LlamaCpp:
             model_path=LLAMA_MODEL_PATH,
             n_gpu_layers=-1,
             n_ctx=8192,
-            temperature=0.0,       # 🔥 strak: geen creativiteit
+            temperature=LLM_TEMPERATURE,
             top_p=0.9,
-            repeat_penalty=1.15,   # 🔥 minder herhaling
-            max_tokens=220,        # 🔥 compact
+            repeat_penalty=1.15,
+            max_tokens=LLM_MAX_TOKENS,
             verbose=False,
         )
     return _llm
 
 
-def _retrieve_with_scores(query: str, k: int = TOP_K):
+def _get_reranker() -> CrossEncoder:
+    global _reranker
+    if _reranker is None:
+        _reranker = CrossEncoder(RERANKER_MODEL, device="cuda", trust_remote_code=True)
+    return _reranker
+
+
+def _retrieve_with_scores(query: str, k: int = RETRIEVE_K) -> List[Tuple[Document, float]]:
     """
-    Returns list of (Document, score). For Chroma this is typically a distance score (lower is better).
+    Hybrid retrieval: BM25 + vector + reranking
     """
-    return _get_vectordb().similarity_search_with_score(query, k=k)
+    # Haal alle docs op voor BM25 (kan later geoptimaliseerd worden)
+    collection_data = _get_vectordb().get()
+    docs = [
+        Document(page_content=content, metadata=meta or {})
+        for content, meta in zip(collection_data["documents"], collection_data["metadatas"])
+    ]
+
+    # BM25
+    bm25_retriever = BM25Retriever.from_documents(docs, k=k // 2)
+
+    # Vector
+    vector_retriever = _get_vectordb().as_retriever(search_kwargs={"k": k // 2})
+
+    # Ensemble
+    ensemble_retriever = EnsembleRetriever(
+        retrievers=[bm25_retriever, vector_retriever],
+        weights=[0.35, 0.65],
+    )
+
+    retrieved_docs = ensemble_retriever.invoke(query)
+
+    if DEBUG_RETRIEVAL:
+        print(f"DEBUG: Ensemble retrieved {len(retrieved_docs)} docs")
+
+    # Fake scores voor compatibiliteit (reranker komt later)
+    return [(doc, 0.0) for doc in retrieved_docs]
 
 
-def _is_relevant(retrieved) -> bool:
-    if not retrieved:
-        return False
-
-    # Count how many docs are reasonably close
-    good_hits = [score for _, score in retrieved if score <= MAX_DISTANCE_THRESHOLD]
-
-    # Require at least 2 good hits for confidence
-    return len(good_hits) >= 2
+def _is_relevant(retrieved: List[Tuple[Document, float]]) -> bool:
+    return len(retrieved) >= 3  # aangepast voor hybrid
 
 
-
-def _build_prompt(question: str, context_blocks: List[str]) -> str:
+def _build_prompt(
+    question: str,
+    context_blocks: List[str],
+    chat_history: Optional[List[Tuple[str, str]]] = None
+) -> str:
     context_text = "\n\n".join(context_blocks).strip()
     if len(context_text) > MAX_CONTEXT_CHARS:
         context_text = context_text[:MAX_CONTEXT_CHARS] + "\n\n[Context truncated]"
+
+    history_text = ""
+    if chat_history:
+        history_text = "\nRecent conversation:\n" + "\n".join(
+            [f"User: {q}\nAnswer: {a}" for q, a in chat_history[-2:]]
+        )
 
     return (
         "You are Storage Finder, a factual assistant for Utrecht University data storage guidance.\n\n"
@@ -119,6 +191,7 @@ def _build_prompt(question: str, context_blocks: List[str]) -> str:
         "- If the question is 'what is X', include (only if supported by context):\n"
         "  what it is, main purpose, key benefits, and a typical use-case.\n"
         "- Include concrete numbers only if they appear in the context, and only once.\n\n"
+        f"{history_text}\n\n"
         f"Context:\n{context_text}\n\n"
         f"Question:\n{question}\n\n"
         "Answer (bullet points only):"
@@ -127,41 +200,29 @@ def _build_prompt(question: str, context_blocks: List[str]) -> str:
 
 def _strip_meta(text: str) -> str:
     BAD_PREFIXES = (
-        "note:",
-        "the final answer",
-        "corrected answer",
-        "this answer",
-        "i have followed",
-        "the answer includes",
+        "note:", "the final answer", "corrected answer", "this answer",
+        "i have followed", "the answer includes",
     )
-
     lines = []
     for ln in text.splitlines():
         l = ln.strip()
         if not l:
             continue
         if l.lower().startswith(BAD_PREFIXES):
-            break  # alles daarna weggooien
+            break
         lines.append(l)
-
     return "\n".join(lines).strip()
 
 
 def _dedupe_lines(text: str) -> str:
-    """
-    Optional safety net against repeated paragraphs/lines.
-    """
-    lines = [ln.strip() for ln in (text or "").splitlines()]
+    lines = [ln.strip() for ln in (text or "").splitlines() if ln.strip()]
     out = []
     seen = set()
     for ln in lines:
-        if not ln:
-            continue
         key = ln.lower()
-        if key in seen:
-            continue
-        seen.add(key)
-        out.append(ln)
+        if key not in seen:
+            seen.add(key)
+            out.append(ln)
     return "\n".join(out).strip()
 
 
@@ -169,53 +230,53 @@ def ask_storage_question(
     user_input: str,
     chat_history: List[Tuple[str, str]] | List[Dict[str, Any]] | None = None,
 ) -> str:
-    """
-    Strict RAG answerer.
-    - chat_history accepted for compatibility, but intentionally NOT used (prevents persona leakage and bad rewrites).
-    """
     question = (user_input or "").strip()
-    hits = _get_vectordb().similarity_search_with_score("what is surfdrive", k=5)
-    for d, s in hits:
-        print("score", s, "src", d.metadata.get("source"), d.page_content[:120])
-
     if not question:
         return "I don't know based on the documentation."
 
-    retrieved = _retrieve_with_scores(question, k=TOP_K)
+    retrieved = _retrieve_with_scores(question, k=RETRIEVE_K)
 
     if DEBUG_RETRIEVAL:
-        print("DEBUG retrieved:", len(retrieved))
-        for i, (d, score) in enumerate(retrieved, 1):
-            snippet = (d.page_content or "").replace("\n", " ")[:200]
-            print(i, f"score={score:.3f}", d.metadata, snippet)
+        print("DEBUG pre-rerank:", len(retrieved))
+        for i, (d, s) in enumerate(retrieved, 1):
+            snippet = d.page_content.replace("\n", " ")[:200]
+            print(i, f"score={s:.3f}", d.metadata, snippet)
 
-    # HARD GATE: no good context => no answer
     if not _is_relevant(retrieved):
         return "I don't know based on the documentation."
 
-    # Build context blocks with lightweight source labels
-    context_blocks: List[str] = []
-    for doc, score in retrieved:
-        src = doc.metadata.get("source", "unknown")
-        text = (doc.page_content or "").strip()
-        if not text:
-            continue
-        context_blocks.append(f"[source: {src} | score: {score:.3f}]\n{text}")
+    # Rerank
+    reranker = _get_reranker()
+    pairs = [[question, doc.page_content] for doc, _ in retrieved]
+    scores = reranker.predict(pairs)
 
-    prompt = _build_prompt(question, context_blocks)
+    sorted_retrieved = sorted(zip(scores, [d for d, _ in retrieved]), key=lambda x: x[0], reverse=True)
+    top_docs = [doc for _, doc in sorted_retrieved[:RERANK_TOP]]
+
+    if DEBUG_RETRIEVAL:
+        print("\nDEBUG post-rerank:")
+        for i, doc in enumerate(top_docs, 1):
+            snippet = doc.page_content.replace("\n", " ")[:200]
+            print(i, doc.metadata, snippet)
+
+    # Context blocks
+    context_blocks = []
+    for doc in top_docs:
+        src = doc.metadata.get("source", "unknown")
+        text = doc.page_content.strip()
+        if text:
+            context_blocks.append(f"[source: {src}]\n{text}")
+
+    prompt = _build_prompt(question, context_blocks, chat_history)
 
     llm = _get_llm()
-
-
-    # LangChain compat: sommige versies gebruiken .invoke(), andere .predict()
     if hasattr(llm, "invoke"):
         answer = llm.invoke(prompt)
     elif hasattr(llm, "predict"):
         answer = llm.predict(prompt)
     else:
-        raise TypeError("Your LlamaCpp wrapper does not support invoke() or predict().")
+        raise TypeError("LlamaCpp does not support invoke() or predict().")
 
-    # Some LLM wrappers may return dict-like; normalize
     if isinstance(answer, dict):
         answer = answer.get("text") or answer.get("output") or str(answer)
 
@@ -223,7 +284,6 @@ def ask_storage_question(
     answer = _dedupe_lines(answer)
     answer = _strip_meta(answer)
 
-    # Extra guard: if model still tries to be helpful without support, enforce the fallback
     if not answer:
         return "I don't know based on the documentation."
 
