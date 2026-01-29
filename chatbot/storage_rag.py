@@ -1,44 +1,13 @@
 # logic/rag.py
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import List, Tuple, Dict, Any, Optional
 
-from langchain_community.vectorstores import Chroma
-from langchain_huggingface import HuggingFaceEmbeddings
-from langchain_community.llms import LlamaCpp
-
-# Correcte imports voor LangChain 1.2.x (2026)
-from langchain_community.retrievers import BM25Retriever
+import requests
 from langchain_core.documents import Document
-from typing import List as TypingList
-
-
-# Simple ensemble retriever implementation
-class EnsembleRetriever:
-    def __init__(self, retrievers: TypingList, weights: TypingList[float]):
-        self.retrievers = retrievers
-        self.weights = weights
-
-    def invoke(self, query: str) -> TypingList[Document]:
-        all_docs = []
-        for retriever, weight in zip(self.retrievers, self.weights):
-            docs = retriever.invoke(query) if hasattr(retriever, 'invoke') else retriever.get_relevant_documents(query)
-            all_docs.extend(docs)
-
-        # Remove duplicates based on page_content
-        seen_content = set()
-        unique_docs = []
-        for doc in all_docs:
-            content_hash = hash(doc.page_content)
-            if content_hash not in seen_content:
-                seen_content.add(content_hash)
-                unique_docs.append(doc)
-
-        return unique_docs
-
-# Voor reranking
-from sentence_transformers import CrossEncoder
+from langchain_chroma import Chroma
 
 
 # -------------------------
@@ -47,40 +16,95 @@ from sentence_transformers import CrossEncoder
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 CHROMA_DIR = str(BASE_DIR / "chroma_storage")
-COLLECTION_NAME = "storage_unified_2026"          # pas aan naar jouw nieuwe collectie
+COLLECTION_NAME = os.environ.get("CHROMA_COLLECTION", "storage_unified_2026_ollama")
 
-EMBEDDING_MODEL_NAME = "intfloat/multilingual-e5-large-instruct"
-LLAMA_MODEL_PATH = str(BASE_DIR / "models" / "Meta-Llama-3.1-8B-Instruct-Q4_K_M.gguf")
+OLLAMA_BASE_URL = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434").rstrip("/")
+OLLAMA_CHAT_MODEL = os.environ.get("OLLAMA_CHAT_MODEL", "llama3.1:8b")
+OLLAMA_EMBED_MODEL = os.environ.get("OLLAMA_EMBED_MODEL", "nomic-embed-text")
 
-RETRIEVE_K = 20
-RERANK_TOP = 6
-MAX_DISTANCE_THRESHOLD = 0.75
-MAX_CONTEXT_CHARS = 9000
-DEBUG_RETRIEVAL = True
+RETRIEVE_K = int(os.environ.get("RETRIEVE_K", "8"))
+MAX_CONTEXT_CHARS = int(os.environ.get("MAX_CONTEXT_CHARS", "9000"))
+DEBUG_RETRIEVAL = os.environ.get("DEBUG_RETRIEVAL", "true").lower() == "true"
 
-RERANKER_MODEL = "jinaai/jina-reranker-v2-base-multilingual"
+LLM_TEMPERATURE = float(os.environ.get("LLM_TEMPERATURE", "0.15"))
+LLM_MAX_TOKENS = int(os.environ.get("LLM_MAX_TOKENS", "250"))
 
-LLM_TEMPERATURE = 0.15
-LLM_MAX_TOKENS = 450
+
+# -------------------------
+# Ollama adapters
+# -------------------------
+class OllamaEmbeddings:
+    """Minimale embedding adapter voor LangChain/Chroma via Ollama /api/embeddings."""
+    def __init__(self, base_url: str, model: str, timeout: int = 120):
+        self.base_url = base_url.rstrip("/")
+        self.model = model
+        self.timeout = timeout
+
+    def embed_documents(self, texts: list[str]) -> list[list[float]]:
+        return [self._embed_one(t) for t in texts]
+
+    def embed_query(self, text: str) -> list[float]:
+        return self._embed_one(text)
+
+    def _embed_one(self, text: str) -> list[float]:
+        r = requests.post(
+            f"{self.base_url}/api/embeddings",
+            json={"model": self.model, "prompt": text},
+            timeout=self.timeout,
+        )
+        r.raise_for_status()
+        return r.json()["embedding"]
+
+
+def _ollama_chat(messages: List[Dict[str, str]]) -> str:
+    r = requests.post(
+        f"{OLLAMA_BASE_URL}/api/chat",
+        json={
+            "model": OLLAMA_CHAT_MODEL,
+            "messages": messages,
+            "options": {
+                "temperature": LLM_TEMPERATURE,
+                "num_predict": LLM_MAX_TOKENS,
+            },
+            "stream": False,
+        },
+        timeout=300,
+    )
+    r.raise_for_status()
+    return r.json()["message"]["content"].strip()
+
+
+def _ensure_ollama_models_exist() -> None:
+    # geeft een duidelijke fout als iemand vergeet te pullen
+    r = requests.get(f"{OLLAMA_BASE_URL}/api/tags", timeout=30)
+    r.raise_for_status()
+    models = {m["name"] for m in r.json().get("models", [])}
+
+    def exists(name: str) -> bool:
+        return name in models or any(m.startswith(name + ":") for m in models)
+
+    missing = [m for m in (OLLAMA_CHAT_MODEL, OLLAMA_EMBED_MODEL) if not exists(m)]
+
+    if missing:
+        raise RuntimeError(
+            "Ollama models missing: "
+            + ", ".join(missing)
+            + ". Run: "
+            + " && ".join([f"ollama pull {m}" for m in missing])
+        )
 
 
 # -------------------------
 # Singletons
 # -------------------------
-_embeddings: Optional[HuggingFaceEmbeddings] = None
+_embeddings: Optional[OllamaEmbeddings] = None
 _vectordb: Optional[Chroma] = None
-_llm: Optional[LlamaCpp] = None
-_reranker: Optional[CrossEncoder] = None
 
 
-def _get_embeddings() -> HuggingFaceEmbeddings:
+def _get_embeddings() -> OllamaEmbeddings:
     global _embeddings
     if _embeddings is None:
-        _embeddings = HuggingFaceEmbeddings(
-            model_name=EMBEDDING_MODEL_NAME,
-            model_kwargs={"device": "cuda"},
-            encode_kwargs={"normalize_embeddings": True},
-        )
+        _embeddings = OllamaEmbeddings(base_url=OLLAMA_BASE_URL, model=OLLAMA_EMBED_MODEL)
     return _embeddings
 
 
@@ -95,65 +119,9 @@ def _get_vectordb() -> Chroma:
     return _vectordb
 
 
-def _get_llm() -> LlamaCpp:
-    global _llm
-    if _llm is None:
-        _llm = LlamaCpp(
-            model_path=LLAMA_MODEL_PATH,
-            n_gpu_layers=-1,
-            n_ctx=8192,
-            temperature=LLM_TEMPERATURE,
-            top_p=0.9,
-            repeat_penalty=1.15,
-            max_tokens=LLM_MAX_TOKENS,
-            verbose=False,
-        )
-    return _llm
-
-
-def _get_reranker() -> CrossEncoder:
-    global _reranker
-    if _reranker is None:
-        _reranker = CrossEncoder(RERANKER_MODEL, device="cuda", trust_remote_code=True)
-    return _reranker
-
-
-def _retrieve_with_scores(query: str, k: int = RETRIEVE_K) -> List[Tuple[Document, float]]:
-    """
-    Hybrid retrieval: BM25 + vector + reranking
-    """
-    # Haal alle docs op voor BM25 (kan later geoptimaliseerd worden)
-    collection_data = _get_vectordb().get()
-    docs = [
-        Document(page_content=content, metadata=meta or {})
-        for content, meta in zip(collection_data["documents"], collection_data["metadatas"])
-    ]
-
-    # BM25
-    bm25_retriever = BM25Retriever.from_documents(docs, k=k // 2)
-
-    # Vector
-    vector_retriever = _get_vectordb().as_retriever(search_kwargs={"k": k // 2})
-
-    # Ensemble
-    ensemble_retriever = EnsembleRetriever(
-        retrievers=[bm25_retriever, vector_retriever],
-        weights=[0.35, 0.65],
-    )
-
-    retrieved_docs = ensemble_retriever.invoke(query)
-
-    if DEBUG_RETRIEVAL:
-        print(f"DEBUG: Ensemble retrieved {len(retrieved_docs)} docs")
-
-    # Fake scores voor compatibiliteit (reranker komt later)
-    return [(doc, 0.0) for doc in retrieved_docs]
-
-
-def _is_relevant(retrieved: List[Tuple[Document, float]]) -> bool:
-    return len(retrieved) >= 3  # aangepast voor hybrid
-
-
+# -------------------------
+# Prompt + post-processing
+# -------------------------
 def _build_prompt(
     question: str,
     context_blocks: List[str],
@@ -173,29 +141,34 @@ def _build_prompt(
         "You are Storage Finder, a factual assistant for Utrecht University data storage guidance.\n\n"
         "STRICT RULES (must follow):\n"
         "- Use ONLY the provided context. Do NOT use outside knowledge.\n"
-        "- Do NOT invent numbers, limits, prices, or policies.\n"
+        "- NEVER speculate, guess, or infer information that is not explicitly present in the context.\n"
+        "- Do NOT explain what a term might refer to if it is not described in the context.\n"
+        "- Do NOT invent numbers, limits, prices, classifications, or policies.\n"
         "- Do NOT suggest tools or services unless explicitly mentioned in the context.\n"
-        "- Treat 'Yoda' as the Utrecht University data management system (not Star Wars).\n"
-        "- Do NOT imitate characters, writing styles, or personas.\n"
-        "- Do NOT include meta-commentary, notes, or self-evaluation.\n"
+        "- Treat 'Yoda' as the Utrecht University data management system (not Star Wars), "
+        "but ONLY if this is explicitly supported by the context.\n"
+        "- Do NOT include meta-commentary, notes, self-evaluation, or reasoning about missing information.\n"
         "- Do NOT repeat the same fact in different words.\n"
-        "- ONLY if the context does NOT contain enough information to answer the question at all,\n"
-        "  reply exactly:\n"
+        "- If no usable context exists for ANY part of the question, reply exactly:\n"
         "  I don't know based on the documentation.\n"
-        "- If partial information IS available, answer using ONLY that information and do NOT add the fallback sentence.\n\n"
+        "- If partial information IS available, answer using ONLY that information and do NOT add the fallback sentence.\n"
+        "- If no usable context exists for a specific item mentioned in the question, do NOT describe that item at all.\n\n"
         "ANSWER STYLE:\n"
-        "- Use a single-level bullet list only.\n"
-        "- Do NOT nest bullets and do NOT use section headers.\n"
-        "- Each bullet must be a complete sentence.\n"
-        "- Use 4–8 bullets.\n"
-        "- If the question is 'what is X', include (only if supported by context):\n"
-        "  what it is, main purpose, key benefits, and a typical use-case.\n"
-        "- Include concrete numbers only if they appear in the context, and only once.\n\n"
+        "- Write in clear, concise paragraphs (not bullet points).\n"
+        "- Write paragraphs ONLY for storage solutions or concepts for which usable context is available.\n"
+        "- Use one short paragraph per described storage solution or concept.\n"
+        "- For comparison questions, explicitly contrast the described items using natural language "
+        "(e.g. 'while', 'whereas', 'in contrast'), but ONLY when both items are supported by context.\n"
+        "- Do NOT introduce sub-types, variants, alternatives, or examples unless explicitly mentioned in the context.\n"
+        "- Keep the total answer concise (typically 2–5 short paragraphs).\n"
+        "- Use neutral, explanatory language suitable for research support and policy contexts.\n\n"
         f"{history_text}\n\n"
         f"Context:\n{context_text}\n\n"
         f"Question:\n{question}\n\n"
-        "Answer (bullet points only):"
+        "Answer:"
     )
+
+
 
 
 def _strip_meta(text: str) -> str:
@@ -204,7 +177,7 @@ def _strip_meta(text: str) -> str:
         "i have followed", "the answer includes",
     )
     lines = []
-    for ln in text.splitlines():
+    for ln in (text or "").splitlines():
         l = ln.strip()
         if not l:
             continue
@@ -216,8 +189,7 @@ def _strip_meta(text: str) -> str:
 
 def _dedupe_lines(text: str) -> str:
     lines = [ln.strip() for ln in (text or "").splitlines() if ln.strip()]
-    out = []
-    seen = set()
+    out, seen = [], set()
     for ln in lines:
         key = ln.lower()
         if key not in seen:
@@ -226,6 +198,9 @@ def _dedupe_lines(text: str) -> str:
     return "\n".join(out).strip()
 
 
+# -------------------------
+# Public API
+# -------------------------
 def ask_storage_question(
     user_input: str,
     chat_history: List[Tuple[str, str]] | List[Dict[str, Any]] | None = None,
@@ -234,57 +209,45 @@ def ask_storage_question(
     if not question:
         return "I don't know based on the documentation."
 
-    retrieved = _retrieve_with_scores(question, k=RETRIEVE_K)
+    _ensure_ollama_models_exist()
+
+    # Retrieval
+    retriever = _get_vectordb().as_retriever(search_kwargs={"k": RETRIEVE_K})
+    docs: List[Document]
+    if hasattr(retriever, "invoke"):
+        docs = retriever.invoke(question)
+    else:
+        docs = retriever.get_relevant_documents(question)
 
     if DEBUG_RETRIEVAL:
-        print("DEBUG pre-rerank:", len(retrieved))
-        for i, (d, s) in enumerate(retrieved, 1):
-            snippet = d.page_content.replace("\n", " ")[:200]
-            print(i, f"score={s:.3f}", d.metadata, snippet)
+        print(f"DEBUG: retrieved {len(docs)} docs")
+        for i, d in enumerate(docs, 1):
+            snippet = (d.page_content or "").replace("\n", " ")[:200]
+            print(i, d.metadata, snippet)
 
-    if not _is_relevant(retrieved):
+    if not docs or len(docs) < 2:
         return "I don't know based on the documentation."
-
-    # Rerank
-    reranker = _get_reranker()
-    pairs = [[question, doc.page_content] for doc, _ in retrieved]
-    scores = reranker.predict(pairs)
-
-    sorted_retrieved = sorted(zip(scores, [d for d, _ in retrieved]), key=lambda x: x[0], reverse=True)
-    top_docs = [doc for _, doc in sorted_retrieved[:RERANK_TOP]]
-
-    if DEBUG_RETRIEVAL:
-        print("\nDEBUG post-rerank:")
-        for i, doc in enumerate(top_docs, 1):
-            snippet = doc.page_content.replace("\n", " ")[:200]
-            print(i, doc.metadata, snippet)
 
     # Context blocks
     context_blocks = []
-    for doc in top_docs:
-        src = doc.metadata.get("source", "unknown")
-        text = doc.page_content.strip()
+    for doc in docs:
+        src = doc.metadata.get("source") or doc.metadata.get("url") or "unknown"
+        text = (doc.page_content or "").strip()
         if text:
             context_blocks.append(f"[source: {src}]\n{text}")
 
-    prompt = _build_prompt(question, context_blocks, chat_history)
+    prompt = _build_prompt(question, context_blocks, None)
 
-    llm = _get_llm()
-    if hasattr(llm, "invoke"):
-        answer = llm.invoke(prompt)
-    elif hasattr(llm, "predict"):
-        answer = llm.predict(prompt)
-    else:
-        raise TypeError("LlamaCpp does not support invoke() or predict().")
+    # LLM call via Ollama
+    messages = [
+        {"role": "system", "content": "Return only the final answer. No meta-text."},
+        {"role": "user", "content": prompt},
+    ]
+    answer = _ollama_chat(messages)
 
-    if isinstance(answer, dict):
-        answer = answer.get("text") or answer.get("output") or str(answer)
-
-    answer = str(answer).strip()
     answer = _dedupe_lines(answer)
     answer = _strip_meta(answer)
 
     if not answer:
         return "I don't know based on the documentation."
-
     return answer

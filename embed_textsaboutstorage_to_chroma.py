@@ -3,13 +3,12 @@ import glob
 from pathlib import Path
 from datetime import datetime
 import hashlib
+import requests
 
 from langchain_chroma import Chroma
-from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_core.documents import Document
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.vectorstores.utils import filter_complex_metadata
-
 from langchain_community.document_loaders import UnstructuredURLLoader, PyPDFLoader
 
 # --- Werk vanuit de map waarin dit script zich bevindt ---
@@ -17,42 +16,26 @@ os.chdir(os.path.dirname(os.path.abspath(__file__)))
 
 # === Config ===
 CHROMA_DIR = "chroma_storage"
-COLLECTION_NAME = "storage_unified_2026"  # verander naam bij nieuwe embedding-model / strategie
-
-# Kies hier je embedding model (probeer deze volgorde)
-EMBEDDING_MODEL_NAME = "intfloat/multilingual-e5-large-instruct"  # beste multilingual 2025
-# Alternatieven:
-# EMBEDDING_MODEL_NAME = "BAAI/bge-m3"
-# EMBEDDING_MODEL_NAME = "sentence-transformers/paraphrase-multilingual-mpnet-base-v2"
-# EMBEDDING_MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"  # oude fallback
+COLLECTION_NAME = "storage_unified_2026_ollama"  # nieuwe naam ivm nieuwe embedding provider
+OLLAMA_BASE_URL = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")
+OLLAMA_EMBED_MODEL = os.environ.get("OLLAMA_EMBED_MODEL", "nomic-embed-text")
 
 URLS = [
-    # --- Core Yoda pages ---
     "https://www.uu.nl/en/research/yoda",
     "https://www.uu.nl/en/research/yoda/about-yoda",
     "https://www.uu.nl/en/research/yoda/for-researchers",
     "https://www.uu.nl/en/research/yoda/faq",
-
-    # --- Data storage & preservation guides ---
     "https://www.uu.nl/en/research/research-data-management/guides/storing-and-preserving-data",
     "https://www.uu.nl/en/research/research-data-management/guides/storing-data-during-your-research",
     "https://www.uu.nl/en/research/research-data-management/guides/archiving-your-data-after-your-project-ends",
-
-    # --- Collaboration & cloud storage ---
     "https://www.uu.nl/en/research/research-data-management/guides/working-together",
     "https://www.uu.nl/en/research/research-data-management/guides/microsoft-teams-and-onedrive",
     "https://www.uu.nl/en/research/research-data-management/guides/surfdrive",
-
-    # --- Privacy, ethics & sensitive data ---
     "https://www.uu.nl/en/research/research-data-management/guides/sensitive-data",
     "https://www.uu.nl/en/research/research-data-management/guides/privacy-and-personal-data",
     "https://www.uu.nl/en/research/research-data-management/guides/legal-and-ethical-aspects",
-
-    # --- FAIR & general RDM ---
     "https://www.uu.nl/en/research/research-data-management/guides/fair-data",
     "https://www.uu.nl/en/research/research-data-management",
-
-    # --- SURF ===
     "https://www.surf.nl/en/surfdrive-safe-and-reliable-cloud-storage",
     "https://www.surf.nl/en/surfdrive",
     "https://www.surf.nl/en/knowledge-base/surfdrive-for-researchers-and-lecturers",
@@ -63,8 +46,34 @@ FACTSHEETS_DIR = "data/factsheets"
 FACTSHEETS_GLOB = "*.md"
 
 
+class OllamaEmbeddings:
+    """Minimale embedding adapter voor LangChain/Chroma via Ollama /api/embeddings."""
+    def __init__(self, base_url: str, model: str, timeout: int = 120):
+        self.base_url = base_url.rstrip("/")
+        self.model = model
+        self.timeout = timeout
+
+    def embed_documents(self, texts: list[str]) -> list[list[float]]:
+        vectors = []
+        for t in texts:
+            vectors.append(self._embed_one(t))
+        return vectors
+
+    def embed_query(self, text: str) -> list[float]:
+        return self._embed_one(text)
+
+    def _embed_one(self, text: str) -> list[float]:
+        r = requests.post(
+            f"{self.base_url}/api/embeddings",
+            json={"model": self.model, "prompt": text},
+            timeout=self.timeout,
+        )
+        r.raise_for_status()
+        data = r.json()
+        return data["embedding"]
+
+
 def get_text_splitter(source_type: str) -> RecursiveCharacterTextSplitter:
-    """Type-specifieke splitter met meer overlap en betere separators"""
     if source_type == "factsheet":
         return RecursiveCharacterTextSplitter(
             chunk_size=1000,
@@ -73,7 +82,7 @@ def get_text_splitter(source_type: str) -> RecursiveCharacterTextSplitter:
             keep_separator=True,
             add_start_index=True,
         )
-    else:  # url + pdf
+    else:
         return RecursiveCharacterTextSplitter(
             chunk_size=700,
             chunk_overlap=180,
@@ -84,7 +93,6 @@ def get_text_splitter(source_type: str) -> RecursiveCharacterTextSplitter:
 
 
 def deduplicate_documents(docs: list[Document]) -> list[Document]:
-    """Simpele deduplicatie op basis van inhoud (sha256 hash)"""
     seen = set()
     unique_docs = []
     for doc in docs:
@@ -162,7 +170,7 @@ def load_url_docs() -> list[Document]:
                 "source_type": "url",
                 "url": d.metadata.get("source", ""),
                 "title": d.metadata.get("title", "").strip() or "Untitled page",
-                "language": "nl",  # bijna alles is Nederlands/Engels
+                "language": "nl",
                 "fetch_date": datetime.now().strftime("%Y-%m"),
             })
             if "start_index" in d.metadata:
@@ -204,9 +212,18 @@ def load_pdf_docs() -> list[Document]:
     return docs
 
 
+def ensure_ollama_ready():
+    # simpele sanity check
+    r = requests.get(f"{OLLAMA_BASE_URL}/api/tags", timeout=30)
+    r.raise_for_status()
+
+
 if __name__ == "__main__":
-    print(f"Start embedding pipeline – model: {EMBEDDING_MODEL_NAME}")
+    print(f"Start embedding pipeline – Ollama embed model: {OLLAMA_EMBED_MODEL}")
+    print(f"Ollama base URL: {OLLAMA_BASE_URL}")
     print(f"Huidige datum: {datetime.now().strftime('%Y-%m-%d %H:%M')}")
+
+    ensure_ollama_ready()
 
     # 1) Oude store opruimen
     if os.path.exists(CHROMA_DIR):
@@ -229,23 +246,15 @@ if __name__ == "__main__":
         print("❌ Geen documenten gevonden — stop.")
         raise SystemExit(1)
 
-    # 4) Embedden
-    # Voor de embedding stap
-    print(f"Embedden met {EMBEDDING_MODEL_NAME} ... (dit kan even duren)")
+    # 4) Embedden via Ollama
+    print(f"Embedden via Ollama ({OLLAMA_EMBED_MODEL}) ...")
+    embeddings = OllamaEmbeddings(base_url=OLLAMA_BASE_URL, model=OLLAMA_EMBED_MODEL)
 
-    embeddings = HuggingFaceEmbeddings(
-        model_name=EMBEDDING_MODEL_NAME,
-        model_kwargs={"device": "cuda"},
-        encode_kwargs={"normalize_embeddings": True},
-    )
-
-    # ← Dit is de cruciale toevoeging
     filtered_docs = filter_complex_metadata(all_docs)
-
     print(f"Na metadata filtering: {len(all_docs)} → {len(filtered_docs)} documenten")
 
     vectordb = Chroma.from_documents(
-        documents=filtered_docs,           # gebruik de gefilterde versie
+        documents=filtered_docs,
         embedding=embeddings,
         persist_directory=CHROMA_DIR,
         collection_name=COLLECTION_NAME,
@@ -253,4 +262,3 @@ if __name__ == "__main__":
 
     print(f"\n✅ Klaar! Collectie '{COLLECTION_NAME}' aangemaakt met {len(all_docs)} chunks")
     print(f"   Opslaglocatie: {Path(CHROMA_DIR).resolve()}")
-    print("   Je kunt nu retrieval testen in storage_rag.py")
