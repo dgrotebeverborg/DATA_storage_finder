@@ -22,6 +22,48 @@
     .question h3 { font-weight: 700; color: #111827; margin-bottom: 0.25rem; }
     .question p { font-size: 0.9rem; color: #4b5563; margin-bottom: 0.5rem; }
     .label-row label { display: block; margin: 0.25rem 0; cursor: pointer; }
+
+    /* Toggle switch (simple + clean) */
+    .toggle {
+      position: relative;
+      display: inline-flex;
+      align-items: center;
+      cursor: pointer;
+      user-select: none;
+      gap: 0.5rem;
+    }
+    .toggle input {
+      position: absolute;
+      opacity: 0;
+      width: 0;
+      height: 0;
+    }
+    .toggle-track {
+      width: 44px;
+      height: 24px;
+      border-radius: 9999px;
+      background: #e5e7eb; /* gray-200 */
+      transition: background 0.2s ease;
+      position: relative;
+      box-shadow: inset 0 0 0 1px rgba(0,0,0,0.06);
+    }
+    .toggle-thumb {
+      width: 20px;
+      height: 20px;
+      border-radius: 9999px;
+      background: #ffffff;
+      position: absolute;
+      top: 2px;
+      left: 2px;
+      transition: transform 0.2s ease;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.15);
+    }
+    .toggle input:checked + .toggle-track {
+      background: #facc15; /* yellow-400 */
+    }
+    .toggle input:checked + .toggle-track .toggle-thumb {
+      transform: translateX(20px);
+    }
   </style>
 </head>
 
@@ -47,13 +89,13 @@
             <br><em>In welke fase van je onderzoek bevind je je?</em></p>
             <div class="label-row">
               <label><input type="radio" name="phase" value="active" required> During research (collect, create, collaborate)</label>
-              <label><input type="radio" name="phase" value="preservation"> After research (archiving, publishing, sharing)</label>
+              <label><input type="radio" name="phase" value="preservation"> After research (archiving, publishing)</label>
               <label><input type="radio" name="phase" value="both"> Both phases apply</label>
             </div>
           </div>
 
           <!-- 2️⃣ Sensitive -->
-          <div class="question">
+          <div class="question mt-6">
             <h3>2. Sensitive / personal data</h3>
             <p>Does your dataset contain personal or sensitive information?
             <br><em>Bevat je data persoonsgegevens of vertrouwelijke informatie?</em></p>
@@ -64,7 +106,7 @@
           </div>
 
           <!-- 3️⃣ Collaboration -->
-          <div class="question">
+          <div class="question mt-6">
             <h3>3. Collaboration needs</h3>
             <p>Do you need to collaborate on this data?
             <br><em>Wil je samenwerken aan deze data?</em></p>
@@ -76,14 +118,13 @@
           </div>
 
           <!-- 4️⃣ Volume -->
-          <div class="question">
+          <div class="question mt-6">
             <h3>4. Data volume</h3>
             <p>How much data do you expect to store?
             <br><em>Hoeveel data verwacht je op te slaan?</em></p>
             <div class="label-row">
-              <label><input type="radio" name="volume" value="small" required> Small (< 50 GB)</label>
-              <label><input type="radio" name="volume" value="medium"> Medium (50 GB – 1 TB)</label>
-              <label><input type="radio" name="volume" value="large"> Large (> 1 TB)</label>
+              <label><input type="radio" name="volume" value="small" required> Small (&lt; 1 TB)</label>
+<label><input type="radio" name="volume" value="large"> Large (&ge; 1 TB)</label>
             </div>
           </div>
 
@@ -95,7 +136,21 @@
     <div class="space-y-6">
 
       <div class="card">
-        <h2 class="text-xl font-bold mb-2">🔎 Matching Solutions</h2>
+        <div class="flex items-start justify-between gap-4 mb-2">
+          <h2 class="text-xl font-bold">🔎 Matching Solutions</h2>
+
+          <!-- Select/Deselect all toggle -->
+          <div class="flex items-center gap-3">
+            <span class="text-sm text-gray-700 font-medium">Select / Deselect all</span>
+            <label class="toggle" title="Select or deselect all matched solutions for comparison">
+              <input id="toggle-all" type="checkbox" onchange="toggleAll(this)">
+              <span class="toggle-track">
+                <span class="toggle-thumb"></span>
+              </span>
+            </label>
+          </div>
+        </div>
+
         <div id="matches" class="space-y-3 text-sm text-gray-800">
           <p>Start by selecting your criteria on the left.</p>
         </div>
@@ -112,13 +167,6 @@
   <script>
     let selected = [];
 
-    function toggleSelect(name) {
-      const idx = selected.indexOf(name);
-      if (idx === -1) selected.push(name);
-      else selected.splice(idx, 1);
-      updateCompareBtn();
-    }
-
     function updateCompareBtn() {
       const btn = document.getElementById("compare-btn");
       if (selected.length >= 2) {
@@ -128,6 +176,48 @@
         btn.classList.remove("active");
         btn.href = "#";
       }
+    }
+
+    function syncToggleAllWithIndividualCheckboxes() {
+      const allBoxes = document.querySelectorAll("#matches input[type='checkbox'][data-role='compare']");
+      const checkedBoxes = document.querySelectorAll("#matches input[type='checkbox'][data-role='compare']:checked");
+      const toggleAllBox = document.getElementById("toggle-all");
+
+      // If there are no matches, keep it off
+      if (!allBoxes.length) {
+        toggleAllBox.checked = false;
+        return;
+      }
+      toggleAllBox.checked = (allBoxes.length === checkedBoxes.length);
+    }
+
+    function onCompareToggle(cb) {
+      const name = cb.dataset.name;
+      if (!name) return;
+
+      const idx = selected.indexOf(name);
+      if (cb.checked) {
+        if (idx === -1) selected.push(name);
+      } else {
+        if (idx !== -1) selected.splice(idx, 1);
+      }
+
+      syncToggleAllWithIndividualCheckboxes();
+      updateCompareBtn();
+    }
+
+    function toggleAll(source) {
+      const checkboxes = document.querySelectorAll("#matches input[type='checkbox'][data-role='compare']");
+      selected = [];
+
+      checkboxes.forEach(cb => {
+        cb.checked = source.checked;
+        if (source.checked && cb.dataset.name) {
+          selected.push(cb.dataset.name);
+        }
+      });
+
+      updateCompareBtn();
     }
 
     function updateMatches() {
@@ -145,29 +235,48 @@
       .then(data => {
         const container = document.getElementById("matches");
         const nonContainer = document.getElementById("non-matches");
+        const toggleAllBox = document.getElementById("toggle-all");
+
         container.innerHTML = "";
         nonContainer.innerHTML = "";
         selected = [];
+        toggleAllBox.checked = false; // default off after refresh
+        updateCompareBtn();
 
         if (!data.matches.length && !data.non_matches.length) {
           container.innerHTML = "<p>No matches found yet. Try selecting more options.</p>";
-          updateCompareBtn();
           return;
         }
 
+        // --- Matches (default UNCHECKED) ---
         data.matches.forEach(s => {
-          selected.push(s.name);
           const div = document.createElement("div");
           div.className = "border rounded p-3 bg-white shadow-sm";
           div.innerHTML = `
             <h4 class="font-semibold text-yellow-600">${s.name}</h4>
             <p>${(s["storage_details"] || "No description available").slice(0, 150)}...</p>
-            <label class="text-sm"><input type="checkbox" checked onchange="toggleSelect('${s.name}')"> Compare</label>
-            <a href="/solution/${encodeURIComponent(s.name)}" class="text-blue-700 hover:underline block mt-1 text-sm">🔍 View details</a>
+
+            <div class="mt-2 flex items-center justify-between">
+              <label class="text-sm flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  data-role="compare"
+                  data-name="${s.name}"
+                  onchange="onCompareToggle(this)"
+                >
+                Compare
+              </label>
+
+              <a href="/solution/${encodeURIComponent(s.name)}"
+                 class="text-blue-700 hover:underline text-sm">
+                 🔍 View details
+              </a>
+            </div>
           `;
           container.appendChild(div);
         });
 
+        // --- Non-matches ---
         data.non_matches.forEach(s => {
           const div = document.createElement("div");
           div.className = "border rounded p-3 bg-gray-50";
@@ -181,6 +290,8 @@
           nonContainer.appendChild(div);
         });
 
+        // ensure toggle-all reflects state (currently all unchecked)
+        syncToggleAllWithIndividualCheckboxes();
         updateCompareBtn();
       });
     }

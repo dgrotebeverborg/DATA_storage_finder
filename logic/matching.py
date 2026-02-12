@@ -68,31 +68,26 @@ def match_with_reason(solution, phase=None, sensitive=None, collab=None, volume=
 
     # --- 4️⃣ Datavolume ---
     # --- 4️⃣ Datavolume ---
+    # --- 4️⃣ Datavolume (Small <1TB vs Large ≥1TB) ---
     if volume:
         capacity = str(solution.get("capacity", "")).lower()
-        max_file = str(solution.get("max_file_size", "")).lower()
 
-        # alles wat "large" aankan, kan ook medium/small aan
-        # alles wat "medium" aankan, kan ook small aan
-        if "large" in capacity or "tb" in capacity:
-            supports_large = supports_medium = supports_small = True
-        elif "medium" in capacity or "gb" in capacity:
-            supports_medium = supports_small = True
-            supports_large = False
-        elif "small" in capacity or "mb" in capacity or "<" in capacity:
-            supports_small = True
-            supports_medium = supports_large = False
-        else:
-            # als we niets weten: conservatief aannemen dat alles kan
-            supports_small = supports_medium = supports_large = True
+        # Heuristiek:
+        # - Large: als capacity iets zegt als "tb", "pb", "petabyte", "100 tb", "> 1 pb", "unlimited", "large"
+        # - Anders: aannemen dat het in elk geval small aankan
+        supports_large = False
+
+        large_markers = ["tb", "pb", "petabyte", "unlimited", "> 1", "100", "500", "1 pb", "large"]
+        if any(m in capacity for m in large_markers):
+            supports_large = True
+
+        # Small is eigenlijk altijd ok (conservatief), tenzij je ooit expliciet kleine limieten hebt.
+        supports_small = True
 
         if volume == "large" and not supports_large:
-            reasons.append("Not suitable for large data volumes")
-        elif volume == "medium" and not supports_medium:
-            reasons.append("Not suitable for medium data volumes")
+            reasons.append("Not suitable for large data volumes (≥ 1 TB)")
         elif volume == "small" and not supports_small:
-            reasons.append("Not suitable for small data volumes")
-
+            reasons.append("Not suitable for small data volumes (< 1 TB)")
 
     ok = len(reasons) == 0
     return ok, reasons
