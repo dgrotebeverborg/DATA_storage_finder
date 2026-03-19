@@ -2,84 +2,22 @@
 # -*- coding: utf-8 -*-
 
 from __future__ import annotations
+
 import json
 import re
+from collections import defaultdict
+from datetime import date
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Tuple
 
 
-# ---------- Config ----------
-INPUT_JSON = "storage_data_2.json"
-OUT_DIR = Path("factsheets")
+BASE_DIR = Path(__file__).resolve().parent
+FACTSHEETS_DIR = BASE_DIR / "factsheets"
+DATA_2 = BASE_DIR / "storage_data_2.json"
 
-# Same structure for every factsheet (always these sections, same order)
-SECTIONS = [
-    "What it is",
-    "Main purpose",
-    "Typical data types",
-    "Position in the research data lifecycle",
-    "Collaboration & access",
-    "Storage capacity & file size",
-    "Security & privacy",
-    "Backup & versioning",
-    "Costs & funding model",
-    "Hosting & data location",
-    "When to use",
-    "When NOT to use",
-    "Support & governance",
-]
-
-# Map JSON fields -> factsheet content slots
-FIELD_MAP = {
-    "What it is": ["storage_details"],
-    "Main purpose": ["storage_details", "positioning_datalyfecycle", "file_type"],
-    "Typical data types": ["file_type", "file_formats"],
-    "Position in the research data lifecycle": ["positioning_datalyfecycle"],
-    "Collaboration & access": [
-        "collaboration",
-        "collaboration_notes",
-        "bound-to- personal-account",
-        "ownershiptransfer",
-        "data_accesscontrolfeatures",
-        "Data transfer protocol",
-        "Data transfer protocol notes",
-        "sync_equipment",
-        "sync_HPC",
-        "sync_R/JupyterNsync",
-        "connectivity,availability",
-    ],
-    "Storage capacity & file size": ["capacity", "max_file_size"],
-    "Security & privacy": [
-        "GDPR_compliant",
-        "GDPR_compliant_note",
-        "GDPR_Location_datasupplier",
-        "GDPR_data-removal-period",
-        "availability_classification",
-        "sensitivity_classification",
-        "Data CIA",
-        "file_encryption (by default",
-        "data_location",
-    ],
-    "Backup & versioning": ["back-ups (by default)", "data_versioning (by default)", "complete_data_deletion2"],
-    "Costs & funding model": ["price", "Price per TB / month", "Price up front", "costmodel"],
-    "Hosting & data location": ["Host", "data_location", "GDPR_Location_datasupplier"],
-    "When to use": ["positioning_datalyfecycle", "collaboration", "availability_classification", "sensitivity_classification"],
-    "When NOT to use": ["Recommendation notes", "positioning_datalyfecycle", "bound-to- personal-account"],
-    "Support & governance": [
-        "Supported by UU?",
-        "Where to request",
-        "Where to request notes",
-        "Internal_contact_point_RDM",
-        "Link_ITManuals",
-        "Link_SLA",
-        "End-of-Life",
-        "sustainability",
-        "Recommendation notes",
-    ],
-}
+URL_RE = re.compile(r"https?://[^\s\]\[\)\(\"'<>]+", re.I)
 
 
-# ---------- Helpers ----------
 def slugify(name: str) -> str:
     s = name.strip().lower()
     s = re.sub(r"[^\w\s-]", "", s)
@@ -91,141 +29,263 @@ def is_missing(v: Any) -> bool:
     if v is None:
         return True
     if isinstance(v, str):
-        vv = v.strip().lower()
-        return vv in {"", "nan", "none", "null", "?", "no"}  # treat these as missing/unknown in narrative
-    if isinstance(v, list) and len(v) == 0:
-        return True
+        t = v.strip().lower()
+        return t in {"", "nan", "none", "null", "n/a", "-", ".", "?"}
+    if isinstance(v, list):
+        return len(v) == 0
     return False
 
 
-def normalize_value(v: Any) -> Optional[str]:
-    """Turn JSON values into readable text, or None if missing/unknown."""
+def as_text(v: Any) -> str:
     if is_missing(v):
-        return None
+        return ""
     if isinstance(v, list):
-        # list of lifecycle phases etc.
-        items = [str(x).strip() for x in v if not is_missing(x)]
-        if not items:
-            return None
-        return ", ".join(items)
+        return ", ".join(str(x).strip() for x in v if not is_missing(x))
     return str(v).strip()
 
 
-def bullets_from_fields(item: Dict[str, Any], fields: List[str]) -> List[str]:
-    """Create concise bullet lines from a list of fields in a stable order."""
-    out: List[str] = []
-    for f in fields:
-        if f not in item:
-            continue
-        val = normalize_value(item.get(f))
-        if not val:
-            continue
-        # make it human-readable, but grounded in the source
-        label = f
-        # small label cleanups
-        label = label.replace(" (by default)", "").replace("connectivity,availability", "connectivity/availability")
-        label = label.replace("bound-to- personal-account", "bound to personal account")
-        out.append(f"- **{label}:** {val}")
+def extract_urls(text: str) -> List[str]:
+    if not isinstance(text, str):
+        return []
+    return [u.rstrip(".,;:") for u in URL_RE.findall(text)]
+
+
+def collect_rows_storage_data_2() -> List[Dict[str, Any]]:
+    data = json.loads(DATA_2.read_text(encoding="utf-8"))
+    rows = []
+    for row in data.get("storage_data_2", []):
+        r = dict(row)
+        r["_origin"] = "storage_data_2.json:storage_data_2"
+        rows.append(r)
+    return rows
+
+
+def canonical_name(row: Dict[str, Any]) -> str:
+    for key in ("name", "storage_name"):
+        t = as_text(row.get(key))
+        if t:
+            return t
+    return "Unnamed solution"
+
+
+def merge_rows(rows: List[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
+    merged: Dict[str, Dict[str, Any]] = {}
+    origins: Dict[str, List[str]] = defaultdict(list)
+    urls_by_solution: Dict[str, Dict[str, set[str]]] = defaultdict(lambda: defaultdict(set))
+
+    # Prefer storage_data_2 values where both exist.
+    rows_sorted = sorted(rows, key=lambda r: 0 if str(r.get("_origin", "")).startswith("storage_data_2") else 1)
+
+    for row in rows_sorted:
+        name = canonical_name(row)
+        if name not in merged:
+            merged[name] = {"name": name}
+        target = merged[name]
+        origins[name].append(str(row.get("_origin", "unknown")))
+
+        for k, v in row.items():
+            if k.startswith("_"):
+                continue
+            txt = as_text(v)
+            if txt:
+                target[k] = txt
+                for url in extract_urls(txt):
+                    urls_by_solution[name][url].add(k)
+
+    for name, record in merged.items():
+        record["_sources"] = sorted(set(origins[name]))
+        record["_links"] = {
+            url: sorted(fields)
+            for url, fields in sorted(urls_by_solution[name].items(), key=lambda x: x[0].lower())
+        }
+
+    return merged
+
+
+def pick(record: Dict[str, Any], *keys: str) -> str:
+    for k in keys:
+        v = as_text(record.get(k))
+        if v:
+            return v
+    return ""
+
+
+def bullet_lines(items: List[Tuple[str, str]]) -> List[str]:
+    out = []
+    for label, val in items:
+        if val:
+            out.append(f"- **{label}:** {val}")
+    if not out:
+        out = ["- Not specified in the source data."]
     return out
 
 
-def narrative_intro(name: str, item: Dict[str, Any]) -> str:
-    """One short paragraph, using storage_details if available."""
-    details = normalize_value(item.get("storage_details"))
-    if details:
-        return f"{name} — {details}"
-    return f"{name} — storage solution described in the source data."
+def build_factsheet(record: Dict[str, Any]) -> str:
+    name = record["name"]
+    today = date.today().isoformat()
 
+    what_it_is = pick(record, "storage_details", "Purpose", "Storage type")
+    phases = pick(record, "positioning_datalyfecycle", "Longterm storage")
+    collaboration = pick(record, "collaboration", "Sharing and Collaboration")
+    sensitivity = pick(record, "sensitivity_classification", "Data sensitivity classification", "availability_classification")
+    capacity = pick(record, "capacity", "Storage capacity")
+    file_size = pick(record, "max_file_size", "Maximum File size")
 
-def build_section(name: str, item: Dict[str, Any], section: str) -> str:
-    fields = FIELD_MAP.get(section, [])
-    bullets = bullets_from_fields(item, fields)
+    best_fit = []
+    if phases:
+        best_fit.append(f"- Lifecycle support: {phases}")
+    if collaboration:
+        best_fit.append(f"- Collaboration model: {collaboration}")
+    if sensitivity:
+        best_fit.append(f"- Data sensitivity profile: {sensitivity}")
+    if capacity:
+        best_fit.append(f"- Capacity context: {capacity}")
+    if not best_fit:
+        best_fit = ["- Use this option when it matches your policy, collaboration, and lifecycle requirements."]
 
-    # Add small section-specific enrichment *without adding new facts*
-    if section == "Position in the research data lifecycle":
-        lifecycle = item.get("positioning_datalyfecycle")
-        lifecycle_txt = normalize_value(lifecycle)
-        if lifecycle_txt:
-            bullets = [f"- **Supported phases:** {lifecycle_txt}"]
-        else:
-            bullets = ["- Not specified in the source data."]
+    less_fit = []
+    rec_notes = pick(record, "Recommendation notes")
+    if rec_notes:
+        less_fit.append(f"- Known caveat: {rec_notes}")
+    if not less_fit:
+        less_fit = ["- Less suitable when critical requirements (security, collaboration, lifecycle) are not supported."]
 
-    if section == "What it is":
-        # Prefer a clean descriptive paragraph over raw bullet dump
-        details = normalize_value(item.get("storage_details"))
-        if details:
-            return f"### {section}\n{details}\n"
-        return f"### {section}\nNot specified in the source data.\n"
+    security = bullet_lines([
+        ("GDPR compliant", pick(record, "GDPR_compliant")),
+        ("Sensitivity classification", pick(record, "sensitivity_classification", "Data sensitivity classification")),
+        ("Availability classification", pick(record, "availability_classification")),
+        ("Data CIA classification", pick(record, "Data CIA")),
+        ("Encryption", pick(record, "file_encryption (by default", "File encryption")),
+        ("Data location", pick(record, "data_location", "Storage location")),
+    ])
 
-    if not bullets:
-        bullets = ["- Not specified in the source data."]
+    collaboration_access = bullet_lines([
+        ("Collaboration", collaboration),
+        ("Collaboration notes", pick(record, "collaboration_notes")),
+        ("Access control", pick(record, "data_accesscontrolfeatures")),
+        ("How to access", pick(record, "How to access")),
+        ("Transfer protocol", pick(record, "Data transfer protocol")),
+        ("Transfer protocol notes", pick(record, "Data transfer protocol notes")),
+    ])
 
-    return f"### {section}\n" + "\n".join(bullets) + "\n"
+    storage_perf = bullet_lines([
+        ("Capacity", capacity),
+        ("Max file size", file_size),
+        ("File formats", pick(record, "file_formats", "File formats")),
+        ("Sync support", pick(record, "sync_equipment", "Sync to Client")),
+    ])
 
+    backup_versioning = bullet_lines([
+        ("Backups", pick(record, "back-ups (by default)", "Back-ups & Recovery")),
+        ("Versioning", pick(record, "data_versioning (by default)", "Versioning")),
+        ("Complete data deletion", pick(record, "complete_data_deletion2", "Complete data deletion")),
+    ])
 
-def build_factsheet(name: str, item: Dict[str, Any]) -> str:
-    header = f"# {name}\n\n"
-    intro = narrative_intro(name, item) + "\n\n"
+    costs = bullet_lines([
+        ("Price per TB/month", pick(record, "Price per TB / month")),
+        ("Price up front", pick(record, "Price up front")),
+        ("Cost model", pick(record, "costmodel", "Costs and eligibility")),
+    ])
 
-    body_parts = []
-    for sec in SECTIONS:
-        body_parts.append(build_section(name, item, sec))
+    support = bullet_lines([
+        ("Supported by UU", pick(record, "Supported by UU?")),
+        ("Host", pick(record, "Host")),
+        ("Where to request", pick(record, "Where to request")),
+        ("Request notes", pick(record, "Where to request notes")),
+        ("Internal contact point RDM", pick(record, "Internal_contact_point_RDM", "Internal contact point for RDM")),
+        ("End-of-life", pick(record, "End-of-Life")),
+    ])
 
-    # Optional: add a compact “Raw links” list for usability
-    links = []
-    for key in ("Link_ITManuals", "Link_SLA"):
-        v = normalize_value(item.get(key))
-        if v:
-            links.append(f"- **{key}:** {v}")
-    if links:
-        body_parts.append("### References (from source data)\n" + "\n".join(links) + "\n")
+    link_lines = []
+    links = record.get("_links", {})
+    if isinstance(links, dict) and links:
+        for url, fields in links.items():
+            src = ", ".join(fields)
+            link_lines.append(f"- {url}\n  - Mentioned in fields: `{src}`")
+    else:
+        link_lines = ["- No explicit URLs found in current source rows."]
 
-    return header + intro + "\n".join(body_parts)
+    source_rows = [f"- `{src}`" for src in record.get("_sources", [])] or ["- Not available"]
 
-
-def load_storage_items(path: str) -> List[Dict[str, Any]]:
-    data = json.loads(Path(path).read_text(encoding="utf-8"))
-    items = data.get("storage_data_2", data)
-    if not isinstance(items, list):
-        raise ValueError("Expected 'storage_data_2' to be a list.")
-    return items
+    sections = [
+        f"# {name}",
+        "",
+        f"Last reviewed: {today}",
+        "",
+        "## At a glance",
+        what_it_is if what_it_is else "Storage solution in the DISC storage catalog.",
+        "",
+        "## Best fit",
+        *best_fit,
+        "",
+        "## Less suitable when",
+        *less_fit,
+        "",
+        "## Research lifecycle coverage",
+        *bullet_lines([("Lifecycle phases", phases)]),
+        "",
+        "## Collaboration and access",
+        *collaboration_access,
+        "",
+        "## Storage profile",
+        *storage_perf,
+        "",
+        "## Security and privacy",
+        *security,
+        "",
+        "## Backup and versioning",
+        *backup_versioning,
+        "",
+        "## Costs and ownership",
+        *costs,
+        "",
+        "## Support and governance",
+        *support,
+        "",
+        "## Canonical links",
+        *link_lines,
+        "",
+        "## Internal source rows",
+        *source_rows,
+        "",
+    ]
+    return "\n".join(sections).strip() + "\n"
 
 
 def main() -> None:
-    OUT_DIR.mkdir(parents=True, exist_ok=True)
+    FACTSHEETS_DIR.mkdir(parents=True, exist_ok=True)
 
-    items = load_storage_items(INPUT_JSON)
+    # Remove old markdown factsheets first, then rebuild from scratch.
+    for md in FACTSHEETS_DIR.glob("*.md"):
+        md.unlink()
 
-    all_md_parts: List[str] = []
-    jsonl_lines: List[str] = []
+    rows = collect_rows_storage_data_2()
+    merged = merge_rows(rows)
 
-    for item in items:
-        name = item.get("name") or item.get("storage_name") or "Unnamed solution"
-        name = str(name).strip()
+    generated = []
+    jsonl_lines = []
 
-        md = build_factsheet(name, item)
-
+    for name in sorted(merged.keys(), key=lambda x: x.lower()):
+        record = merged[name]
+        md = build_factsheet(record)
         slug = slugify(name)
-        md_path = OUT_DIR / f"{slug}.md"
-        md_path.write_text(md, encoding="utf-8")
+        path = FACTSHEETS_DIR / f"{slug}.md"
+        path.write_text(md, encoding="utf-8")
+        generated.append(md)
 
-        all_md_parts.append(md)
-
-        # JSONL record: nice for embedding pipelines
-        jsonl_obj = {
+        jsonl_lines.append(json.dumps({
             "id": slug,
             "name": name,
             "text": md,
-            "source": "storage_data_2.json",
-        }
-        jsonl_lines.append(json.dumps(jsonl_obj, ensure_ascii=False))
+            "source": "merged_storage_data",
+        }, ensure_ascii=False))
 
-    (OUT_DIR / "all_factsheets.md").write_text("\n\n---\n\n".join(all_md_parts), encoding="utf-8")
-    (OUT_DIR / "factsheets.jsonl").write_text("\n".join(jsonl_lines), encoding="utf-8")
+    (FACTSHEETS_DIR / "all_factsheets.md").write_text("\n\n---\n\n".join(generated), encoding="utf-8")
+    (FACTSHEETS_DIR / "factsheets.jsonl").write_text("\n".join(jsonl_lines), encoding="utf-8")
 
-    print(f"✅ Generated {len(items)} factsheets in: {OUT_DIR.resolve()}")
-    print(f"   - {OUT_DIR / 'all_factsheets.md'}")
-    print(f"   - {OUT_DIR / 'factsheets.jsonl'}")
+    print(f"Generated {len(generated)} factsheets in {FACTSHEETS_DIR}")
+    print(f"- {FACTSHEETS_DIR / 'all_factsheets.md'}")
+    print(f"- {FACTSHEETS_DIR / 'factsheets.jsonl'}")
 
 
 if __name__ == "__main__":

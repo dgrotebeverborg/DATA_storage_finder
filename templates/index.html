@@ -35,32 +35,35 @@
 <body class="bg-gray-100 font-sans p-6">
 
   <!-- Top Bar -->
-  <div class="flex flex-col md:flex-row justify-between items-center mb-6">
-    <h1 class="text-2xl font-bold mb-4 md:mb-0">💾 Research Storage Solutions (Made by DISC)</h1>
-    <div class="flex gap-2">
-      <a href="/wizard"
-         class="bg-yellow-400 hover:bg-yellow-300 text-black font-semibold py-2 px-4 rounded">
-        🧭 Wizard
-      </a>
-       <a id="compare-btn"
-       class="bg-yellow-400 text-black font-semibold py-2 px-4 rounded transition duration-150"
-       style="opacity: 0.5; pointer-events: none;">
-      🧪 Compare
-    </a>
-        <a href="/chat" class="bg-yellow-400 hover:bg-yellow-300 text-black font-semibold py-2 px-4 rounded">
-  💬 Chat Assistant
-</a>
-        <!-- NEW About Us button -->
-<a href="/about"
-   class="bg-yellow-400 hover:bg-yellow-300 text-black font-semibold py-2 px-4 rounded">
-  ℹ️ About Us
-</a>
-
-
+  <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-3 mb-6">
+    <h1 class="text-2xl font-bold">💾 Research Storage Solutions (Made by DISC)</h1>
+    <div class="flex flex-wrap justify-end items-center gap-2 w-full md:w-auto">
+      <a href="/" class="bg-yellow-400 hover:bg-yellow-300 text-black font-semibold py-2 px-4 rounded">🏠 Home</a>
+      <a href="/wizard" class="bg-yellow-400 hover:bg-yellow-300 text-black font-semibold py-2 px-4 rounded">🧭 Wizard</a>
+      <a href="/chat" class="bg-yellow-400 hover:bg-yellow-300 text-black font-semibold py-2 px-4 rounded">💬 Chat Assistant</a>
+      <a href="/about" class="bg-yellow-400 hover:bg-yellow-300 text-black font-semibold py-2 px-4 rounded">ℹ️ About Us</a>
+      <a href="https://survey.uu.nl/jfe/form/SV_eJXjVQFcv3znem2"
+           target="_blank" rel="noopener noreferrer"
+           class="bg-yellow-400 hover:bg-yellow-300 text-black font-semibold py-2 px-4 rounded"
+           title="Help us improve this tool by completing a short feedback survey.">📝 Feedback</a>
     </div>
   </div>
 
+  <div class="mb-4 flex justify-end">
+    <a id="compare-btn"
+       class="bg-yellow-400 text-black font-semibold py-2 px-4 rounded transition duration-150"
+       style="opacity: 0.5; pointer-events: none;">🧪 Compare</a>
+  </div>
+
+  <div class="mb-4 rounded border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-800">
+    Instance marker: 2026-03-19 17:27 CET
+  </div>
+
   <!-- Solution Cards -->
+  <p class="text-sm text-gray-600 mb-4">
+    Help us improve this tool: please share feedback via the <strong>Feedback</strong> button.
+  </p>
+
   <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-6">
     {% for s in solutions %}
       <div class="bg-white rounded-lg shadow p-4 flex flex-col justify-between">

@@ -3,6 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <title>Wizard Recommendations</title>
+  <script src="https://cdn.tailwindcss.com"></script>
   <style>
     body {
       font-family: sans-serif;
@@ -42,13 +43,6 @@
       width: fit-content;
     }
 
-    .top-bar {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      margin-bottom: 2rem;
-    }
-
     .compare-btn {
       opacity: 0.5;
       pointer-events: none;
@@ -74,12 +68,22 @@
 </head>
 <body>
 
-  <div class="top-bar">
+  <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-3 mb-6">
     <h1>🧭 Recommended Solutions</h1>
-    <div>
-      <a class="btn" href="/wizard">↩ Back to Wizard</a>
-      <a id="compare-btn" class="btn compare-btn" href="#">🧪 Compare Selected</a>
+    <div class="flex flex-wrap justify-end items-center gap-2 w-full md:w-auto">
+      <a href="/" class="bg-yellow-400 hover:bg-yellow-300 text-black font-semibold py-2 px-4 rounded">🏠 Home</a>
+      <a href="/wizard" class="bg-yellow-400 hover:bg-yellow-300 text-black font-semibold py-2 px-4 rounded">🧭 Wizard</a>
+      <a href="/chat" class="bg-yellow-400 hover:bg-yellow-300 text-black font-semibold py-2 px-4 rounded">💬 Chat Assistant</a>
+      <a href="/about" class="bg-yellow-400 hover:bg-yellow-300 text-black font-semibold py-2 px-4 rounded">ℹ️ About Us</a>
+      <a
+         href="https://survey.uu.nl/jfe/form/SV_eJXjVQFcv3znem2"
+         target="_blank" rel="noopener noreferrer"
+         class="bg-yellow-400 hover:bg-yellow-300 text-black font-semibold py-2 px-4 rounded"
+         title="Help us improve this tool by completing a short feedback survey.">📝 Feedback</a>
     </div>
+  </div>
+  <div style="text-align:right; margin-bottom:1rem;">
+    <a id="compare-btn" class="btn compare-btn" href="#">🧪 Compare Selected</a>
   </div>
 
   {% if matches|length == 0 %}

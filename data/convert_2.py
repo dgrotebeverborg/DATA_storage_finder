@@ -1,7 +1,7 @@
 import pandas as pd
 import json
 import math
-
+# test remote
 def convert_david_overview_to_json(excel_path, output_path):
     xls = pd.ExcelFile(excel_path)
 
@@ -34,9 +34,19 @@ def convert_david_overview_to_json(excel_path, output_path):
             category_mapping[colname] = topic if topic else ""
             subcategory_mapping[colname] = topic2 if topic2 else ""
 
-    # 📙 4. Relevante kolommen = alle oplossingen
+    # 📙 4. Relevante kolommen = alle oplossingen (maar UU Internal negeren)
     irrelevant_cols = {"#", "Topic", "Topic 2", "Column name"}
-    storage_options = [col for col in overview_df.columns if col not in irrelevant_cols]
+    ignore_solution_cols = {
+        "st21",
+        "uu internal",
+        "st22",
+    }  # case-insensitive
+
+    storage_options = [
+        col for col in overview_df.columns
+        if col not in irrelevant_cols
+           and str(col).strip().lower() not in ignore_solution_cols
+    ]
 
     # 📘 5. Helperfunctie voor opschonen
     def _clean_val(v):

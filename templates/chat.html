@@ -19,15 +19,43 @@
       background-color: #e5e7eb;
       align-self: flex-end;
     }
+    .meta {
+      font-size: 0.75rem;
+      color: #4b5563;
+      margin-top: 0.25rem;
+      line-height: 1.35;
+    }
   </style>
 </head>
 <body class="bg-gray-100 font-sans p-6">
 
+  <div class="max-w-[2000px] mx-auto">
+    <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-3 mb-4">
+      <h1 class="text-2xl font-bold">💬 Chat with the Storage Assistant</h1>
+      <div class="flex flex-wrap justify-end items-center gap-2 w-full md:w-auto">
+        <a href="/" class="bg-yellow-400 hover:bg-yellow-300 text-black font-semibold py-2 px-4 rounded">🏠 Home</a>
+        <a href="/wizard" class="bg-yellow-400 hover:bg-yellow-300 text-black font-semibold py-2 px-4 rounded">🧭 Wizard</a>
+        <a href="/chat" class="bg-yellow-400 hover:bg-yellow-300 text-black font-semibold py-2 px-4 rounded">💬 Chat Assistant</a>
+        <a href="/about" class="bg-yellow-400 hover:bg-yellow-300 text-black font-semibold py-2 px-4 rounded">ℹ️ About Us</a>
+        <a href="https://survey.uu.nl/jfe/form/SV_eJXjVQFcv3znem2"
+           target="_blank" rel="noopener noreferrer"
+           class="bg-yellow-400 hover:bg-yellow-300 text-black font-semibold py-2 px-4 rounded"
+           title="Help us improve this tool by completing a short feedback survey.">📝 Feedback</a>
+      </div>
+    </div>
+  </div>
+
   <div class="max-w-2xl mx-auto">
-    <h1 class="text-2xl font-bold mb-4">💬 Chat with the Storage Assistant</h1>
+    <div class="bg-yellow-50 border border-yellow-200 text-yellow-900 rounded p-3 mb-4 text-sm">
+      <strong>Important:</strong> this chatbot is still in development, and some answers are currently inaccurate or low quality.
+      Please treat responses as experimental and verify important information.
+      We still invite you to ask logical storage-related questions that you believe should work well.
+      To improve quality, your questions and chatbot answers are logged and reviewed for model and retrieval improvements.
+      Your feedback helps us improve the chatbot.
+    </div>
 
     <div class="bg-white p-4 rounded shadow h-[60vh] overflow-y-auto flex flex-col mb-4" id="chat-box">
-      <div class="chat-bubble bot">Hi! Ask me anything about UU data storage or privacy.</div>
+      <div class="chat-bubble bot">Hi! I can help you choose and compare UU research storage options, including collaboration, sensitivity, costs, archiving, and publishing.</div>
     </div>
 
     <form id="chat-form" class="flex gap-2">
@@ -43,6 +71,19 @@
     const chatBox = document.getElementById('chat-box');
     const form = document.getElementById('chat-form');
     const input = document.getElementById('user-input');
+
+    function renderCitations(citations) {
+      if (!Array.isArray(citations) || citations.length === 0) return "";
+      const top = citations.slice(0, 4);
+      const bits = top.map(c => {
+        const label = `[${c.id}] ${c.source || "unknown source"}`;
+        if (c.url) {
+          return `<a href="${c.url}" target="_blank" rel="noopener noreferrer" class="underline">${label}</a>`;
+        }
+        return label;
+      });
+      return `Sources: ${bits.join(" | ")}`;
+    }
 
     form.onsubmit = async function(e) {
       e.preventDefault();
@@ -73,7 +114,27 @@
         body: JSON.stringify({ message: msg })
       });
       const data = await res.json();
-      botBubble.innerText = data.response;
+      botBubble.innerText = data.response || "No response.";
+
+      const meta = document.createElement('div');
+      meta.className = "meta";
+      const parts = [];
+      if (typeof data.confidence === "number") {
+        parts.push(`confidence: ${data.confidence.toFixed(2)}`);
+      }
+      if (data.route) {
+        parts.push(`route: ${data.route}`);
+      }
+      const citationsText = renderCitations(data.citations);
+      if (citationsText) {
+        parts.push(citationsText);
+      }
+      if (data.needs_clarification) {
+        parts.push("Please answer the clarification question so I can give a better recommendation.");
+      }
+      meta.innerHTML = parts.join("<br>");
+      if (parts.length) botBubble.appendChild(meta);
+
       chatBox.scrollTop = chatBox.scrollHeight;
     };
   </script>
