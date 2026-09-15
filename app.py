@@ -4,17 +4,9 @@ import math
 import threading
 import time
 from logic.matching import match_with_reason, sanitize_for_json
-from chatbot.storage_rag import (
-    ask_storage_question_structured,
-    detect_question_language,
-    clarification_prompt,
-)
-from chatbot.metrics_dashboard import compute_metrics_summary
 
 from flask import Flask, request, jsonify, render_template, session
 from werkzeug.middleware.proxy_fix import ProxyFix
-
-# from langchain_community.chains import ConversationalRetrievalChain
 
 import os
 from collections import defaultdict, deque
@@ -26,6 +18,18 @@ def _env_flag(name: str, default: bool = False) -> bool:
         return default
     return value.strip().lower() in {"1", "true", "yes", "on"}
 
+
+# The chatbot needs langchain/chromadb plus a running Ollama instance;
+# keep it opt-in so the rest of the site works without that setup.
+CHATBOT_ENABLED = _env_flag("CHATBOT_ENABLED", False)
+
+if CHATBOT_ENABLED:
+    from chatbot.storage_rag import (
+        ask_storage_question_structured,
+        detect_question_language,
+        clarification_prompt,
+    )
+    from chatbot.metrics_dashboard import compute_metrics_summary
 
 app = Flask(__name__)
 app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_port=1)
@@ -152,6 +156,9 @@ def _chat_rate_limit_remaining(ip: str) -> tuple[bool, int]:
 
 @app.route("/chat/ask", methods=["POST"])
 def ask_rag():
+    if not CHATBOT_ENABLED:
+        return jsonify({"response": "The chat assistant is currently disabled."}), 503
+
     started_at = time.time()
     client_ip = _client_ip()
     allowed, retry_after = _chat_rate_limit_remaining(client_ip)
@@ -514,14 +521,20 @@ def health():
 
 @app.route("/chat")
 def chat():
+    if not CHATBOT_ENABLED:
+        return "The chat assistant is currently disabled.", 503
     return render_template("chat.html")
 
 @app.route("/chat/metrics")
 def chat_metrics_page():
+    if not CHATBOT_ENABLED:
+        return "The chat assistant is currently disabled.", 503
     return render_template("chat_metrics.html")
 
 @app.route("/api/chat/metrics")
 def chat_metrics_api():
+    if not CHATBOT_ENABLED:
+        return jsonify({"error": "chatbot disabled"}), 503
     days_raw = request.args.get("days", "14")
     try:
         days = max(1, min(int(days_raw), 120))
@@ -531,6 +544,8 @@ def chat_metrics_api():
 
 @app.route("/chat/reset", methods=["POST"])
 def reset_chat():
+    if not CHATBOT_ENABLED:
+        return jsonify({"message": "Chat is disabled."}), 503
     session.pop("chat_history", None)
     session.pop("pending_clarification", None)
     session.pop("chat_lang", None)
